@@ -49,6 +49,7 @@ class EmailAttachment(BaseModel):
     attachment_id: str
     filename: str
 
+
 class EmailDraftRequest(BaseModel):
     original_prompt: str
     intent: IntentResponse
@@ -64,4 +65,27 @@ class EmailDraftResponse(BaseModel):
     action: ActionType
     attachments: List[EmailAttachment] = Field(default_factory=list)
     questions: List[str] = Field(default_factory=list)
+    ready_for_approval: bool = False
+
+
+class ReviewDecision(str, Enum):
+    PASS = "PASS"
+    FAIL = "FAIL"
+
+
+class ReviewRequest(BaseModel):
+    original_prompt: str
+    intent: IntentResponse
+    draft: EmailDraftResponse
+    context_text: Optional[str] = None
+    attachment_text: Optional[str] = None
+    available_attachments: List[AvailableAttachment] = Field(default_factory=list)
+
+
+class ReviewResponse(BaseModel):
+    decision: ReviewDecision
+    score: float = Field(ge=0.0, le=1.0)
+    summary: str
+    issues: List[str] = Field(default_factory=list)
+    revision_instructions: List[str] = Field(default_factory=list)
     ready_for_approval: bool = False
