@@ -1,16 +1,4 @@
-"""
-Gmail OAuth 2.0 authentication helpers (web-application flow).
 
-Uses google_auth_oauthlib.flow.Flow instead of InstalledAppFlow so the
-OAuth consent happens through the browser via FastAPI redirect routes,
-not through a local desktop server.
-
-Flow overview:
-  1. GET /api/gmail/oauth/start   → builds the Google auth URL, redirects browser
-  2. Google shows consent screen  → user approves
-  3. GET /api/gmail/oauth/callback → receives auth code, exchanges for tokens
-  4. Tokens saved to token.json   → reused / refreshed on subsequent calls
-"""
 
 from pathlib import Path
 
@@ -18,9 +6,6 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
 
 # Read/write access to Gmail messages, labels, drafts, and sending
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
@@ -47,10 +32,6 @@ TOKEN_FILE = _SERVICE_ROOT / "token.json"
 
 _pending_oauth: dict[str, str] = {}
 
-
-# ---------------------------------------------------------------------------
-# Public helpers
-# ---------------------------------------------------------------------------
 
 def create_auth_flow() -> Flow:
     """
