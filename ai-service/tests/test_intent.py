@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.intent_analyze import analyze_intent
+from app.agents.intent_analyze import analyze_intent
 from app.main import app
 from app.schemas import ActionType, IntentResponse, SourceType
 

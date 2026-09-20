@@ -2,13 +2,16 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
 
-from app.email_draft import generate_draft
-from app.intent_analyze import analyze_intent
+from app.agents.email_draft import generate_draft
+from app.agents.intent_analyze import analyze_intent
+from app.agents.reviewer import review_draft
 from app.schemas import (
     EmailDraftRequest,
     EmailDraftResponse,
     IntentRequest,
     IntentResponse,
+    ReviewRequest,
+    ReviewResponse,
 )
 
 app = FastAPI(
@@ -45,4 +48,15 @@ async def create_draft(request: EmailDraftRequest) -> EmailDraftResponse:
         raise HTTPException(
             status_code=502,
             detail=f"Error generating draft with Gemini: {exc}",
+        ) from exc
+
+
+@app.post("/review", response_model=ReviewResponse)
+async def review_email_draft(request: ReviewRequest) -> ReviewResponse:
+    try:
+        return await review_draft(request)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Error reviewing draft with Gemini: {exc}",
         ) from exc
