@@ -2,8 +2,14 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
 
+from app.email_draft import generate_draft
 from app.intent_analyze import analyze_intent
-from app.schemas import IntentRequest, IntentResponse
+from app.schemas import (
+    EmailDraftRequest,
+    EmailDraftResponse,
+    IntentRequest,
+    IntentResponse,
+)
 
 app = FastAPI(
     title="AI Email Assistant — AI Service",
@@ -28,4 +34,15 @@ async def get_intent(request: IntentRequest) -> IntentResponse:
         raise HTTPException(
             status_code=502,
             detail=f"Error analyzing intent with Gemini: {exc}",
+        ) from exc
+
+
+@app.post("/draft", response_model=EmailDraftResponse)
+async def create_draft(request: EmailDraftRequest) -> EmailDraftResponse:
+    try:
+        return await generate_draft(request)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Error generating draft with Gemini: {exc}",
         ) from exc
