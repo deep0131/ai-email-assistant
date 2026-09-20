@@ -37,3 +37,34 @@ def get_email_thread(thread_id: str) -> dict:
     """
     client = GmailClient()
     return client.get_thread(thread_id=thread_id)
+
+
+@tool
+def create_gmail_draft(
+    to: list[str],
+    subject: str,
+    body: str,
+    attachment_paths: list[str] | None = None,
+) -> dict:
+    """Create a draft email in Gmail.
+
+    Builds a MIME email with the specified recipients, subject,
+    plain-text body, and optional file attachments, then saves it
+    to Gmail Drafts without sending it.
+
+    Args:
+        to: List of recipient email addresses.
+        subject: Subject line for the email.
+        body: Plain-text body content of the email.
+        attachment_paths: Optional list of local file paths to attach.
+
+    Returns:
+        A dict with "draft_id" and "message_id".
+    """
+    client = GmailClient()
+    return client.create_draft(
+        to=to,
+        subject=subject,
+        body=body,
+        attachment_paths=attachment_paths,
+    )
