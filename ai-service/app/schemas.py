@@ -33,3 +33,35 @@ class IntentResponse(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     missing_information: List[str] = Field(default_factory=list)
     reasoning_summary: str
+
+
+class EmailRecipient(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+
+
+class AvailableAttachment(BaseModel):
+    attachment_id: str
+    filename: str
+
+
+class EmailAttachment(BaseModel):
+    attachment_id: str
+    filename: str
+
+class EmailDraftRequest(BaseModel):
+    original_prompt: str
+    intent: IntentResponse
+    context_text: Optional[str] = None
+    attachment_text: Optional[str] = None
+    available_attachments: List[AvailableAttachment] = Field(default_factory=list)
+
+
+class EmailDraftResponse(BaseModel):
+    subject: str
+    to: List[EmailRecipient]
+    body: str
+    action: ActionType
+    attachments: List[EmailAttachment] = Field(default_factory=list)
+    questions: List[str] = Field(default_factory=list)
+    ready_for_approval: bool = False
