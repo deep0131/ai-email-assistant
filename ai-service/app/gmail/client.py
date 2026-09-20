@@ -1,9 +1,19 @@
 
 import base64
+from dataclasses import dataclass
+from email.message import EmailMessage
 
 from googleapiclient.discovery import build
 
 from app.gmail.auth import get_valid_credentials
+
+
+@dataclass
+class GmailAttachment:
+    attachment_id: str
+    filename: str
+    content_type: str
+    data: bytes
 
 
 def get_gmail_service():
@@ -16,7 +26,7 @@ def get_gmail_service():
 class GmailClient:
     """
     Thin wrapper around the Gmail API that exposes
-    search_threads() and get_thread() with clean return shapes.
+    search_threads(), get_thread(), create_draft(), and send_email() with clean return shapes.
     """
 
     def __init__(self):
@@ -59,6 +69,119 @@ class GmailClient:
         return {
             "thread_id": raw_thread.get("id", ""),
             "messages": messages,
+        }
+
+    @staticmethod
+    def _attach_files(message: EmailMessage, attachments: list[GmailAttachment]) -> None:
+        """Attach in-memory files directly to a MIME message without writing to disk."""
+        for att in attachments:
+            content_type = att.content_type or "application/octet-stream"
+            if "/" in content_type:
+                maintype, subtype = content_type.split("/", 1)
+            else:
+                maintype, subtype = "application", "octet-stream"
+
+            message.add_attachment(
+                att.data,
+                maintype=maintype,
+                subtype=subtype,
+                filename=att.filename,
+            )
+
+    def create_draft(
+        self,
+        to: list[str],
+        subject: str,
+        body: str,
+        attachments: list[GmailAttachment] | None = None,
+    ) -> dict:
+        """
+        Create a Gmail draft with plain-text content and optional in-memory attachments.
+
+        Args:
+            to: List of recipient email addresses.
+            subject: Subject line for the email.
+            body: Plain-text body of the email.
+            attachments: Optional list of in-memory GmailAttachment objects.
+
+        Returns:
+            dict containing:
+                - draft_id: Gmail draft identifier.
+                - message_id: Gmail message identifier for the draft.
+        """
+        # 1. Build the MIME email message
+        message = EmailMessage()
+        if to:
+            message["To"] = ", ".join(to)
+        message["Subject"] = subject
+        message.set_content(body)
+
+        # 2. Attach any in-memory files provided
+        if attachments:
+            self._attach_files(message, attachments)
+
+        # 3. Encode the message in URL-safe base64
+        raw_bytes = message.as_bytes()
+        encoded_message = base64.urlsafe_b64encode(raw_bytes).decode("utf-8")
+
+        # 4. Call Gmail API users.drafts.create
+        draft = self.service.users().drafts().create(
+            userId="me",
+            body={"message": {"raw": encoded_message}},
+        ).execute()
+
+        # 5. Return draft ID and message ID
+        return {
+            "draft_id": draft.get("id", ""),
+            "message_id": draft.get("message", {}).get("id", ""),
+        }
+
+    def send_email(
+        self,
+        to: list[str],
+        subject: str,
+        body: str,
+        attachments: list[GmailAttachment] | None = None,
+    ) -> dict:
+        """
+        Send an email via Gmail with plain-text content and optional in-memory attachments.
+
+        Args:
+            to: List of recipient email addresses.
+            subject: Subject line for the email.
+            body: Plain-text body of the email.
+            attachments: Optional list of in-memory GmailAttachment objects.
+
+        Returns:
+            dict containing:
+                - message_id: Gmail message identifier for the sent email.
+                - thread_id: Gmail thread identifier.
+        """
+        # 1. Build the MIME email message
+        message = EmailMessage()
+        if to:
+            message["To"] = ", ".join(to)
+        message["Subject"] = subject
+        message.set_content(body)
+
+        # 2. Attach any in-memory files provided
+        if attachments:
+            self._attach_files(message, attachments)
+
+        # 3. Encode the message in URL-safe base64
+        raw_bytes = message.as_bytes()
+        encoded_message = base64.urlsafe_b64encode(raw_bytes).decode("utf-8")
+
+        # 4. Call Gmail API users.messages.send
+        sent_message = self.service.users().messages().send(
+            userId="me",
+            body={"raw": encoded_message},
+        ).execute()
+
+        # 5. Return message ID and thread ID
+        return {
+            "message_id": sent_message.get("id", ""),
+            "thread_id": sent_message.get("threadId", ""),
         }
 
 
