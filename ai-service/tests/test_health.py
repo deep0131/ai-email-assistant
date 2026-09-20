@@ -19,4 +19,3 @@ async def test_health_returns_ok():
     assert data["status"] == "ok"
     assert data["service"] == "ai-service"
     assert "timestamp" in data
-
