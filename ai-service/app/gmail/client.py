@@ -1,12 +1,19 @@
 
 import base64
+from dataclasses import dataclass
 from email.message import EmailMessage
-import mimetypes
-from pathlib import Path
 
 from googleapiclient.discovery import build
 
 from app.gmail.auth import get_valid_credentials
+
+
+@dataclass
+class GmailAttachment:
+    attachment_id: str
+    filename: str
+    content_type: str
+    data: bytes
 
 
 def get_gmail_service():
@@ -64,21 +71,38 @@ class GmailClient:
             "messages": messages,
         }
 
+    @staticmethod
+    def _attach_files(message: EmailMessage, attachments: list[GmailAttachment]) -> None:
+        """Attach in-memory files directly to a MIME message without writing to disk."""
+        for att in attachments:
+            content_type = att.content_type or "application/octet-stream"
+            if "/" in content_type:
+                maintype, subtype = content_type.split("/", 1)
+            else:
+                maintype, subtype = "application", "octet-stream"
+
+            message.add_attachment(
+                att.data,
+                maintype=maintype,
+                subtype=subtype,
+                filename=att.filename,
+            )
+
     def create_draft(
         self,
         to: list[str],
         subject: str,
         body: str,
-        attachment_paths: list[str] | None = None,
+        attachments: list[GmailAttachment] | None = None,
     ) -> dict:
         """
-        Create a Gmail draft with plain-text content and optional attachments.
+        Create a Gmail draft with plain-text content and optional in-memory attachments.
 
         Args:
             to: List of recipient email addresses.
             subject: Subject line for the email.
             body: Plain-text body of the email.
-            attachment_paths: Optional list of local file paths to attach.
+            attachments: Optional list of in-memory GmailAttachment objects.
 
         Returns:
             dict containing:
@@ -92,26 +116,9 @@ class GmailClient:
         message["Subject"] = subject
         message.set_content(body)
 
-        # 2. Attach any files provided
-        if attachment_paths:
-            for path_str in attachment_paths:
-                file_path = Path(path_str)
-                if not file_path.is_file():
-                    raise FileNotFoundError(f"Attachment file not found: {path_str}")
-
-                # Guess the MIME type or fallback to octet-stream
-                mime_type, _ = mimetypes.guess_type(str(file_path))
-                if mime_type is None:
-                    mime_type = "application/octet-stream"
-                maintype, subtype = mime_type.split("/", 1)
-
-                file_data = file_path.read_bytes()
-                message.add_attachment(
-                    file_data,
-                    maintype=maintype,
-                    subtype=subtype,
-                    filename=file_path.name,
-                )
+        # 2. Attach any in-memory files provided
+        if attachments:
+            self._attach_files(message, attachments)
 
         # 3. Encode the message in URL-safe base64
         raw_bytes = message.as_bytes()
@@ -134,16 +141,16 @@ class GmailClient:
         to: list[str],
         subject: str,
         body: str,
-        attachment_paths: list[str] | None = None,
+        attachments: list[GmailAttachment] | None = None,
     ) -> dict:
         """
-        Send an email via Gmail with plain-text content and optional attachments.
+        Send an email via Gmail with plain-text content and optional in-memory attachments.
 
         Args:
             to: List of recipient email addresses.
             subject: Subject line for the email.
             body: Plain-text body of the email.
-            attachment_paths: Optional list of local file paths to attach.
+            attachments: Optional list of in-memory GmailAttachment objects.
 
         Returns:
             dict containing:
@@ -157,26 +164,9 @@ class GmailClient:
         message["Subject"] = subject
         message.set_content(body)
 
-        # 2. Attach any files provided
-        if attachment_paths:
-            for path_str in attachment_paths:
-                file_path = Path(path_str)
-                if not file_path.is_file():
-                    raise FileNotFoundError(f"Attachment file not found: {path_str}")
-
-                # Guess the MIME type or fallback to octet-stream
-                mime_type, _ = mimetypes.guess_type(str(file_path))
-                if mime_type is None:
-                    mime_type = "application/octet-stream"
-                maintype, subtype = mime_type.split("/", 1)
-
-                file_data = file_path.read_bytes()
-                message.add_attachment(
-                    file_data,
-                    maintype=maintype,
-                    subtype=subtype,
-                    filename=file_path.name,
-                )
+        # 2. Attach any in-memory files provided
+        if attachments:
+            self._attach_files(message, attachments)
 
         # 3. Encode the message in URL-safe base64
         raw_bytes = message.as_bytes()

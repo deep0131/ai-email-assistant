@@ -1,7 +1,49 @@
 
+from contextvars import ContextVar
+
 from langchain_core.tools import tool
 
-from app.gmail.client import GmailClient
+from app.gmail.client import GmailAttachment, GmailClient
+
+
+# Context variable to hold in-memory attachments for the current request
+_request_attachments: ContextVar[dict[str, GmailAttachment]] = ContextVar(
+    "_request_attachments", default={}
+)
+
+
+def set_request_attachments(attachments: list[GmailAttachment]) -> None:
+    """Register in-memory attachments available for the current request."""
+    _request_attachments.set({att.attachment_id: att for att in attachments})
+
+
+def get_request_attachments() -> dict[str, GmailAttachment]:
+    """Get in-memory attachments registered for the current request."""
+    return _request_attachments.get()
+
+
+def clear_request_attachments() -> None:
+    """Clear attachments for the current request."""
+    _request_attachments.set({})
+
+
+def _resolve_attachment_ids(attachment_ids: list[str] | None) -> list[GmailAttachment]:
+    """
+    Resolve attachment IDs against the attachments uploaded in the current request.
+    Rejects any attachment_id that does not belong to the current request.
+    """
+    if not attachment_ids:
+        return []
+
+    available = get_request_attachments()
+    resolved: list[GmailAttachment] = []
+    for att_id in attachment_ids:
+        if att_id not in available:
+            raise ValueError(
+                f"Invalid attachment_id: '{att_id}' does not belong to the current request."
+            )
+        resolved.append(available[att_id])
+    return resolved
 
 
 @tool
@@ -44,69 +86,61 @@ def create_gmail_draft(
     to: list[str],
     subject: str,
     body: str,
-    attachment_paths: list[str] | None = None,
+    attachment_ids: list[str] | None = None,
 ) -> dict:
     """Create a draft email in Gmail.
 
     Builds a MIME email with the specified recipients, subject,
-    plain-text body, and optional file attachments, then saves it
-    to Gmail Drafts without sending it.
+    plain-text body, and optional attachments from the current request,
+    then saves it to Gmail Drafts without sending it.
 
     Args:
         to: List of recipient email addresses.
         subject: Subject line for the email.
         body: Plain-text body content of the email.
-        attachment_paths: Optional list of local file paths to attach.
+        attachment_ids: Optional list of attachment IDs uploaded in the current request.
 
     Returns:
         A dict with "draft_id" and "message_id".
+
+    Raises:
+        ValueError: If any attachment_id does not belong to the current request.
     """
+    resolved_attachments = _resolve_attachment_ids(attachment_ids)
     client = GmailClient()
     return client.create_draft(
         to=to,
         subject=subject,
         body=body,
-        attachment_paths=attachment_paths,
+        attachments=resolved_attachments if resolved_attachments else None,
     )
 
 
-@tool
 def send_gmail(
     to: list[str],
     subject: str,
     body: str,
-    approval_confirmed: bool = False,
-    attachment_paths: list[str] | None = None,
+    attachment_ids: list[str] | None = None,
 ) -> dict:
-    """Send an email via Gmail with human-in-the-loop approval protection.
-
-    Sends an email to the specified recipients with subject, plain-text body,
-    and optional attachments. Requires explicit user approval before sending.
+    """Send an email via Gmail.
 
     Args:
         to: List of recipient email addresses.
         subject: Subject line for the email.
         body: Plain-text body of the email.
-        approval_confirmed: Must be True to permit sending. If False, the email
-            will not be sent.
-        attachment_paths: Optional list of local file paths to attach.
+        attachment_ids: Optional list of attachment IDs uploaded in the current request.
 
     Returns:
         A dict with "message_id" and "thread_id".
 
     Raises:
-        PermissionError: If approval_confirmed is not True.
+        ValueError: If any attachment_id does not belong to the current request.
     """
-    if not approval_confirmed:
-        raise PermissionError(
-            "Email sending was aborted: explicit user approval is required "
-            "(approval_confirmed must be True)."
-        )
-
+    resolved_attachments = _resolve_attachment_ids(attachment_ids)
     client = GmailClient()
     return client.send_email(
         to=to,
         subject=subject,
         body=body,
-        attachment_paths=attachment_paths,
+        attachments=resolved_attachments if resolved_attachments else None,
     )
