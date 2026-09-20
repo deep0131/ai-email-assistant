@@ -82,6 +82,11 @@ def retrieve_oauth_state(state: str) -> str:
     return code_verifier
 
 
+def clear_oauth_state(state: str) -> None:
+  
+    _pending_oauth.pop(state, None)
+
+
 def create_auth_flow_with_verifier(code_verifier: str) -> Flow:
     """
     Build a Flow and attach an existing PKCE code_verifier.
@@ -96,8 +101,9 @@ def create_auth_flow_with_verifier(code_verifier: str) -> Flow:
 
 def save_credentials(creds: Credentials) -> None:
     """Persist OAuth tokens to token.json for reuse across restarts."""
-    with open(TOKEN_FILE, "w") as f:
-        f.write(creds.to_json())
+    TOKEN_FILE.touch(mode=0o600, exist_ok=True)
+    TOKEN_FILE.chmod(0o600)
+    TOKEN_FILE.write_text(creds.to_json())
 
 
 def load_credentials() -> Credentials | None:

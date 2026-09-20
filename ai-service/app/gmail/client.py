@@ -71,25 +71,43 @@ class GmailClient:
                 return header.get("value", "")
         return ""
 
-    @staticmethod
-    def _extract_plain_text(payload: dict) -> str:
+    def _extract_plain_text(self, payload: dict, message_id: str = "") -> str:
         """
         Recursively walk the message payload and return the first
-        text/plain body found.  Gmail nests parts inside parts for
+        text/plain body found. Gmail nests parts inside parts for
         multipart messages, so we check recursively.
         """
         mime_type = payload.get("mimeType", "")
 
         # Simple single-part message
         if mime_type == "text/plain":
-            data = payload.get("body", {}).get("data", "")
+            body = payload.get("body", {})
+            data = body.get("data", "")
+
+            # If the body is large, Gmail omits inline data and provides attachmentId
+            if not data and body.get("attachmentId") and message_id:
+                attachment = (
+                    self.service.users()
+                    .messages()
+                    .attachments()
+                    .get(
+                        userId="me",
+                        messageId=message_id,
+                        id=body["attachmentId"],
+                    )
+                    .execute()
+                )
+                data = attachment.get("data", "")
+
             if data:
-                return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+                return base64.urlsafe_b64decode(
+                    data + "=" * (-len(data) % 4)
+                ).decode("utf-8", errors="replace")
             return ""
 
         # Multipart message — recurse into each child part
         for part in payload.get("parts", []):
-            text = GmailClient._extract_plain_text(part)
+            text = self._extract_plain_text(part, message_id=message_id)
             if text:
                 return text
 
@@ -97,15 +115,16 @@ class GmailClient:
 
     def _parse_message(self, raw_msg: dict) -> dict:
         """Convert a raw Gmail API message into a clean dict."""
+        message_id = raw_msg.get("id", "")
         payload = raw_msg.get("payload", {})
         headers = payload.get("headers", [])
 
         return {
-            "message_id": raw_msg.get("id", ""),
+            "message_id": message_id,
             "thread_id": raw_msg.get("threadId", ""),
             "from": self._get_header(headers, "From"),
             "to": self._get_header(headers, "To"),
             "subject": self._get_header(headers, "Subject"),
             "date": self._get_header(headers, "Date"),
-            "body": self._extract_plain_text(payload),
+            "body": self._extract_plain_text(payload, message_id=message_id),
         }

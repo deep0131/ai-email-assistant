@@ -4,6 +4,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import RedirectResponse
 
 from app.gmail.auth import (
+    clear_oauth_state,
     create_auth_flow,
     create_auth_flow_with_verifier,
     retrieve_oauth_state,
@@ -65,14 +66,33 @@ def gmail_oauth_start():
 
 
 @app.get("/api/gmail/oauth/callback")
-def gmail_oauth_callback(code: str, state: str):
+def gmail_oauth_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+):
     """
     Step 2 — Handle the OAuth callback from Google.
 
-    Google redirects here with ?code=...&state=... query parameters.
+    Google redirects here with ?code=...&state=... query parameters on success,
+    or ?error=...&state=... if authorization was denied or cancelled.
     We validate the state, recreate the Flow with the stored PKCE
     code_verifier, exchange the code for tokens, and save them.
     """
+    if error:
+        if state:
+            clear_oauth_state(state)
+        return {
+            "status": "error",
+            "message": f"OAuth authorization was denied or cancelled: {error}",
+        }
+
+    if not code or not state:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing required 'code' or 'state' parameter in OAuth callback.",
+        )
+
     try:
         # Retrieve the code_verifier that was stored during /start
         code_verifier = retrieve_oauth_state(state)
