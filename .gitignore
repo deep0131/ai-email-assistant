@@ -1,0 +1,55 @@
+# --- OS ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- IDEs ---
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# --- Environment ---
+.env
+.env.local
+.env.*.local
+
+# ===================
+# Node / Next.js
+# ===================
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# ===================
+# Java / Maven
+# ===================
+backend/target/
+backend/*.jar
+backend/*.war
+backend/.env
+backend/logs/
+
+# ===================
+# Python
+# ===================
+ai-service/__pycache__/
+ai-service/**/__pycache__/
+ai-service/.venv/
+ai-service/venv/
+ai-service/*.egg-info/
+ai-service/dist/
+ai-service/build/
+ai-service/.pytest_cache/
+ai-service/.env
+
+# ===================
+# Postgres (local data)
+# ===================
+pgdata/

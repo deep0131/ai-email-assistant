@@ -1,0 +1,51 @@
+#!/bin/sh
+# ----------------------------------------------------------------------------
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+# ----------------------------------------------------------------------------
+
+set -e
+
+WRAPPER_DIR="$(cd "$(dirname "$0")" && pwd)"
+MAVEN_USER_HOME="${MAVEN_USER_HOME:-$HOME/.m2}"
+WRAPPER_PROPERTIES="$WRAPPER_DIR/.mvn/wrapper/maven-wrapper.properties"
+
+# Read distribution URL from properties
+DIST_URL=$(grep 'distributionUrl' "$WRAPPER_PROPERTIES" | cut -d'=' -f2-)
+
+MAVEN_HOME="$MAVEN_USER_HOME/wrapper/dists/apache-maven-3.9.9"
+
+if [ ! -f "$MAVEN_HOME/bin/mvn" ]; then
+    echo "Downloading Maven distribution..."
+    mkdir -p "$MAVEN_USER_HOME/wrapper/dists"
+    MAVEN_ZIP="$MAVEN_USER_HOME/wrapper/dists/apache-maven-3.9.9.zip"
+
+    if command -v curl > /dev/null 2>&1; then
+        curl -fsSL -o "$MAVEN_ZIP" "$DIST_URL"
+    elif command -v wget > /dev/null 2>&1; then
+        wget -q -O "$MAVEN_ZIP" "$DIST_URL"
+    else
+        echo "ERROR: curl or wget is required to download Maven." >&2
+        exit 1
+    fi
+
+    echo "Extracting Maven..."
+    unzip -q -o "$MAVEN_ZIP" -d "$MAVEN_USER_HOME/wrapper/dists"
+    rm -f "$MAVEN_ZIP"
+fi
+
+exec "$MAVEN_HOME/bin/mvn" "$@"
