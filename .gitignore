@@ -48,6 +48,8 @@ ai-service/dist/
 ai-service/build/
 ai-service/.pytest_cache/
 ai-service/.env
+credentials.json
+token.json
 
 # ===================
 # Postgres (local data)
