@@ -19,7 +19,7 @@ def get_gmail_service():
 class GmailClient:
     """
     Thin wrapper around the Gmail API that exposes
-    search_threads(), get_thread(), and create_draft() with clean return shapes.
+    search_threads(), get_thread(), create_draft(), and send_email() with clean return shapes.
     """
 
     def __init__(self):
@@ -127,6 +127,71 @@ class GmailClient:
         return {
             "draft_id": draft.get("id", ""),
             "message_id": draft.get("message", {}).get("id", ""),
+        }
+
+    def send_email(
+        self,
+        to: list[str],
+        subject: str,
+        body: str,
+        attachment_paths: list[str] | None = None,
+    ) -> dict:
+        """
+        Send an email via Gmail with plain-text content and optional attachments.
+
+        Args:
+            to: List of recipient email addresses.
+            subject: Subject line for the email.
+            body: Plain-text body of the email.
+            attachment_paths: Optional list of local file paths to attach.
+
+        Returns:
+            dict containing:
+                - message_id: Gmail message identifier for the sent email.
+                - thread_id: Gmail thread identifier.
+        """
+        # 1. Build the MIME email message
+        message = EmailMessage()
+        if to:
+            message["To"] = ", ".join(to)
+        message["Subject"] = subject
+        message.set_content(body)
+
+        # 2. Attach any files provided
+        if attachment_paths:
+            for path_str in attachment_paths:
+                file_path = Path(path_str)
+                if not file_path.is_file():
+                    raise FileNotFoundError(f"Attachment file not found: {path_str}")
+
+                # Guess the MIME type or fallback to octet-stream
+                mime_type, _ = mimetypes.guess_type(str(file_path))
+                if mime_type is None:
+                    mime_type = "application/octet-stream"
+                maintype, subtype = mime_type.split("/", 1)
+
+                file_data = file_path.read_bytes()
+                message.add_attachment(
+                    file_data,
+                    maintype=maintype,
+                    subtype=subtype,
+                    filename=file_path.name,
+                )
+
+        # 3. Encode the message in URL-safe base64
+        raw_bytes = message.as_bytes()
+        encoded_message = base64.urlsafe_b64encode(raw_bytes).decode("utf-8")
+
+        # 4. Call Gmail API users.messages.send
+        sent_message = self.service.users().messages().send(
+            userId="me",
+            body={"raw": encoded_message},
+        ).execute()
+
+        # 5. Return message ID and thread ID
+        return {
+            "message_id": sent_message.get("id", ""),
+            "thread_id": sent_message.get("threadId", ""),
         }
 
 

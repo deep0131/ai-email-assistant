@@ -68,3 +68,45 @@ def create_gmail_draft(
         body=body,
         attachment_paths=attachment_paths,
     )
+
+
+@tool
+def send_gmail(
+    to: list[str],
+    subject: str,
+    body: str,
+    approval_confirmed: bool = False,
+    attachment_paths: list[str] | None = None,
+) -> dict:
+    """Send an email via Gmail with human-in-the-loop approval protection.
+
+    Sends an email to the specified recipients with subject, plain-text body,
+    and optional attachments. Requires explicit user approval before sending.
+
+    Args:
+        to: List of recipient email addresses.
+        subject: Subject line for the email.
+        body: Plain-text body of the email.
+        approval_confirmed: Must be True to permit sending. If False, the email
+            will not be sent.
+        attachment_paths: Optional list of local file paths to attach.
+
+    Returns:
+        A dict with "message_id" and "thread_id".
+
+    Raises:
+        PermissionError: If approval_confirmed is not True.
+    """
+    if not approval_confirmed:
+        raise PermissionError(
+            "Email sending was aborted: explicit user approval is required "
+            "(approval_confirmed must be True)."
+        )
+
+    client = GmailClient()
+    return client.send_email(
+        to=to,
+        subject=subject,
+        body=body,
+        attachment_paths=attachment_paths,
+    )
