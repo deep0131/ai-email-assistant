@@ -26,7 +26,7 @@ def get_gmail_service():
 class GmailClient:
     """
     Thin wrapper around the Gmail API that exposes
-    search_threads(), get_thread(), create_draft(), and send_email() with clean return shapes.
+    search_threads(), get_thread(), create_draft(), and send_draft() with clean return shapes.
     """
 
     def __init__(self):
@@ -34,6 +34,12 @@ class GmailClient:
 
 
     def search_threads(self, query: str, max_results: int = 10) -> dict:
+        """Search Gmail threads and return useful candidate info per thread.
+
+        For each thread returned by the list API, the first message is
+        loaded to extract sender, subject, and date headers so the caller
+        (and the user) can distinguish ambiguous results.
+        """
         response = self.service.users().threads().list(
             userId="me",
             q=query,
@@ -42,13 +48,39 @@ class GmailClient:
 
         raw_threads = response.get("threads", [])
 
-        threads = [
-            {
-                "thread_id": t.get("id", ""),
-                "snippet": t.get("snippet", ""),
-            }
-            for t in raw_threads
-        ]
+        threads: list[dict] = []
+        for t in raw_threads:
+            thread_id = t.get("id", "")
+            snippet = t.get("snippet", "")
+
+            # Load the thread with metadata format to get headers cheaply
+            sender = ""
+            subject = ""
+            date = ""
+            try:
+                thread_data = self.service.users().threads().get(
+                    userId="me",
+                    id=thread_id,
+                    format="metadata",
+                    metadataHeaders=["From", "Subject", "Date"],
+                ).execute()
+                messages = thread_data.get("messages", [])
+                if messages:
+                    first_msg = messages[0]
+                    headers = first_msg.get("payload", {}).get("headers", [])
+                    sender = self._get_header(headers, "From")
+                    subject = self._get_header(headers, "Subject")
+                    date = self._get_header(headers, "Date")
+            except Exception:
+                pass
+
+            threads.append({
+                "thread_id": thread_id,
+                "snippet": snippet,
+                "sender": sender,
+                "subject": subject,
+                "date": date,
+            })
 
         return {
             "threads": threads,
@@ -94,15 +126,24 @@ class GmailClient:
         subject: str,
         body: str,
         attachments: list[GmailAttachment] | None = None,
+        thread_id: str | None = None,
+        in_reply_to: str | None = None,
+        references: str | None = None,
     ) -> dict:
         """
         Create a Gmail draft with plain-text content and optional in-memory attachments.
+
+        For replies, supply thread_id (and optionally in_reply_to / references)
+        so the draft belongs to the correct Gmail thread.
 
         Args:
             to: List of recipient email addresses.
             subject: Subject line for the email.
             body: Plain-text body of the email.
             attachments: Optional list of in-memory GmailAttachment objects.
+            thread_id: Gmail thread ID to attach the draft to (for replies).
+            in_reply_to: RFC-2822 Message-ID of the message being replied to.
+            references: RFC-2822 References header value.
 
         Returns:
             dict containing:
@@ -114,6 +155,10 @@ class GmailClient:
         if to:
             message["To"] = ", ".join(to)
         message["Subject"] = subject
+        if in_reply_to:
+            message["In-Reply-To"] = in_reply_to
+        if references:
+            message["References"] = references
         message.set_content(body)
 
         # 2. Attach any in-memory files provided
@@ -124,13 +169,18 @@ class GmailClient:
         raw_bytes = message.as_bytes()
         encoded_message = base64.urlsafe_b64encode(raw_bytes).decode("utf-8")
 
-        # 4. Call Gmail API users.drafts.create
+        # 4. Build the API request body
+        draft_body: dict = {"message": {"raw": encoded_message}}
+        if thread_id:
+            draft_body["message"]["threadId"] = thread_id
+
+        # 5. Call Gmail API users.drafts.create
         draft = self.service.users().drafts().create(
             userId="me",
-            body={"message": {"raw": encoded_message}},
+            body=draft_body,
         ).execute()
 
-        # 5. Return draft ID and message ID
+        # 6. Return draft ID and message ID
         return {
             "draft_id": draft.get("id", ""),
             "message_id": draft.get("message", {}).get("id", ""),
@@ -179,6 +229,21 @@ class GmailClient:
         ).execute()
 
         # 5. Return message ID and thread ID
+        return {
+            "message_id": sent_message.get("id", ""),
+            "thread_id": sent_message.get("threadId", ""),
+        }
+
+    def send_draft(self, draft_id: str) -> dict:
+        """Send an existing Gmail draft after trusted human approval."""
+        if not draft_id:
+            raise ValueError("draft_id is required")
+
+        sent_message = self.service.users().drafts().send(
+            userId="me",
+            body={"id": draft_id},
+        ).execute()
+
         return {
             "message_id": sent_message.get("id", ""),
             "thread_id": sent_message.get("threadId", ""),
@@ -249,5 +314,6 @@ class GmailClient:
             "to": self._get_header(headers, "To"),
             "subject": self._get_header(headers, "Subject"),
             "date": self._get_header(headers, "Date"),
+            "rfc_message_id": self._get_header(headers, "Message-ID"),
             "body": self._extract_plain_text(payload, message_id=message_id),
         }
