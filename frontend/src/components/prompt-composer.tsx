@@ -1,7 +1,16 @@
 "use client";
 
-import React, { useRef } from "react";
-import { Paperclip, ArrowUp, X, FileText, Loader2 } from "lucide-react";
+import React, { useRef, useEffect, useMemo } from "react";
+import {
+  Paperclip,
+  ArrowUp,
+  X,
+  FileText,
+  FileCode,
+  FileArchive,
+  Image as ImageIcon,
+  Loader2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formatFileSize } from "@/lib/utils";
@@ -14,6 +23,80 @@ export interface PromptComposerProps {
   onSubmit: () => void;
   isLoading?: boolean;
   placeholder?: string;
+}
+
+// Subcomponent for individual attachment preview with thumbnail support
+function AttachmentPreviewItem({
+  file,
+  onRemove,
+  disabled,
+}: {
+  file: File;
+  onRemove: () => void;
+  disabled: boolean;
+}) {
+  const isImage = file.type.startsWith("image/");
+  const previewUrl = useMemo(() => {
+    if (!isImage) return null;
+    return URL.createObjectURL(file);
+  }, [file, isImage]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
+
+  const fileIcon = useMemo(() => {
+    if (isImage) return <ImageIcon className="h-3.5 w-3.5 text-sky-400 shrink-0" />;
+    const name = file.name.toLowerCase();
+    if (name.endsWith(".zip") || name.endsWith(".tar") || name.endsWith(".gz")) {
+      return <FileArchive className="h-3.5 w-3.5 text-amber-400 shrink-0" />;
+    }
+    if (name.endsWith(".json") || name.endsWith(".ts") || name.endsWith(".js") || name.endsWith(".py")) {
+      return <FileCode className="h-3.5 w-3.5 text-emerald-400 shrink-0" />;
+    }
+    return <FileText className="h-3.5 w-3.5 text-zinc-400 shrink-0" />;
+  }, [file.name, isImage]);
+
+  return (
+    <div
+      className="group relative flex items-center gap-2 rounded-lg bg-zinc-800/90 pl-1.5 pr-2 py-1 text-xs text-zinc-200 border border-zinc-700/60 transition-colors hover:border-zinc-600 focus-within:ring-1 focus-within:ring-zinc-500"
+      title={`${file.name} (${formatFileSize(file.size)})`}
+    >
+      {/* Thumbnail preview for images */}
+      {isImage && previewUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={previewUrl}
+          alt={file.name}
+          className="h-6 w-6 rounded object-cover border border-zinc-700/80 shrink-0"
+        />
+      ) : (
+        <span className="p-0.5">{fileIcon}</span>
+      )}
+
+      <div className="flex flex-col min-w-0 max-w-[140px] sm:max-w-[200px]">
+        <span className="truncate font-medium text-zinc-100">{file.name}</span>
+        <span className="text-[10px] text-zinc-400 tabular-nums">
+          {formatFileSize(file.size)}
+        </span>
+      </div>
+
+      <button
+        type="button"
+        onClick={onRemove}
+        disabled={disabled}
+        className="rounded-full p-1 text-zinc-400 hover:text-white hover:bg-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-400 disabled:opacity-40 transition-colors ml-0.5"
+        aria-label={`Remove attachment ${file.name}`}
+        title={`Remove ${file.name}`}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
 }
 
 export function PromptComposer({
@@ -46,7 +129,6 @@ export function PromptComposer({
     if (!selected || selected.length === 0) return;
 
     const newFiles = Array.from(selected);
-    // Prevent adding exact duplicates (same name and size)
     const existingKeys = new Set(files.map((f) => `${f.name}-${f.size}`));
     const deduplicated = newFiles.filter(
       (f) => !existingKeys.has(`${f.name}-${f.size}`)
@@ -56,7 +138,6 @@ export function PromptComposer({
       onFilesChange([...files, ...deduplicated]);
     }
 
-    // Reset input so re-selecting the same file works
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -79,36 +160,28 @@ export function PromptComposer({
         className="hidden"
         onChange={handleFileSelect}
         aria-label="Upload file attachments"
+        tabIndex={-1}
       />
 
-      <div className="relative flex flex-col rounded-2xl border border-zinc-800 bg-zinc-900/90 shadow-xl transition-all focus-within:border-zinc-700 focus-within:ring-1 focus-within:ring-zinc-700">
+      <div
+        className="relative flex flex-col rounded-2xl border border-zinc-800 bg-zinc-900/90 shadow-xl transition-all focus-within:border-zinc-700 focus-within:ring-1 focus-within:ring-zinc-700"
+        role="region"
+        aria-label="Prompt and attachment composer"
+      >
         {/* Selected files preview tray */}
         {files.length > 0 && (
-          <div className="flex flex-wrap gap-2 px-3 pt-3 pb-1 border-b border-zinc-800/80">
+          <div
+            className="flex flex-wrap gap-2 px-3 pt-3 pb-1 border-b border-zinc-800/80"
+            role="list"
+            aria-label="Attached files"
+          >
             {files.map((file, idx) => (
-              <div
+              <AttachmentPreviewItem
                 key={`${file.name}-${file.size}-${idx}`}
-                className="flex items-center gap-2 rounded-lg bg-zinc-800/90 px-2.5 py-1.5 text-xs text-zinc-200 border border-zinc-700/60 transition-colors"
-                title={`${file.name} (${formatFileSize(file.size)})`}
-              >
-                <FileText className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
-                <span className="max-w-[160px] sm:max-w-[220px] truncate font-medium">
-                  {file.name}
-                </span>
-                <span className="text-[11px] text-zinc-400 tabular-nums">
-                  {formatFileSize(file.size)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveFile(idx)}
-                  disabled={isLoading}
-                  className="rounded-full p-0.5 text-zinc-400 hover:text-white hover:bg-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:opacity-40"
-                  aria-label={`Remove file ${file.name}`}
-                  title="Remove file"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
+                file={file}
+                onRemove={() => handleRemoveFile(idx)}
+                disabled={isLoading}
+              />
             ))}
           </div>
         )}
@@ -121,6 +194,7 @@ export function PromptComposer({
           onKeyDown={handleKeyDown}
           disabled={isLoading}
           rows={1}
+          aria-label="Email assistant prompt"
           className="min-h-[56px] max-h-48 border-0 bg-transparent px-4 pt-3.5 pb-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none disabled:opacity-50"
         />
 
@@ -135,12 +209,15 @@ export function PromptComposer({
               disabled={isLoading}
               className="h-8 w-8 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
               title="Add attachment"
-              aria-label="Add attachment"
+              aria-label="Add file attachment"
             >
               <Paperclip className="h-4 w-4" />
             </Button>
             {files.length > 0 && (
-              <span className="text-xs text-zinc-500 font-mono">
+              <span
+                className="text-xs text-zinc-500 font-mono"
+                aria-live="polite"
+              >
                 {files.length} {files.length === 1 ? "file" : "files"}
               </span>
             )}

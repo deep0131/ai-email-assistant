@@ -42,7 +42,12 @@ export function ChatArea({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6">
+    <div
+      className="flex-1 overflow-y-auto px-3 sm:px-4 py-6"
+      role="log"
+      aria-live="polite"
+      aria-label="Conversation with AI Email Assistant"
+    >
       <div className="max-w-3xl mx-auto space-y-6">
         {messages.map((msg, index) => {
           const isLatest = index === messages.length - 1;
