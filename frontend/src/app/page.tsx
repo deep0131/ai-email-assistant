@@ -2,15 +2,26 @@
 
 import React, { useState } from "react";
 import { Header } from "@/components/header";
-import { ChatArea, MessageItem } from "@/components/chat-area";
+import { ChatArea } from "@/components/chat-area";
 import { PromptComposer } from "@/components/prompt-composer";
-import { prepareWorkflowFormData } from "@/lib/api";
+import { prepareWorkflowFormData, executeWorkflow } from "@/lib/api";
+import { ChatMessage, WorkflowResponse } from "@/lib/types";
+
+function createMessageId(): string {
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+}
+
+function getTimestamp(): string {
+  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
 
 export default function Home() {
-  const [messages, setMessages] = useState<MessageItem[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [promptText, setPromptText] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [workflowThreadId, setWorkflowThreadId] = useState<string | null>(null);
+  const [currentStatus, setCurrentStatus] = useState<string | null>(null);
 
   const handleSelectPrompt = (selectedText: string) => {
     setPromptText(selectedText);
@@ -20,61 +31,167 @@ export default function Home() {
     setMessages([]);
     setPromptText("");
     setSelectedFiles([]);
+    setWorkflowThreadId(null);
+    setCurrentStatus(null);
   };
 
+  // General workflow execution handler
+  const runWorkflow = async (formData: FormData) => {
+    setIsLoading(true);
+
+    try {
+      const response: WorkflowResponse = await executeWorkflow(formData);
+
+      if (response.workflow_thread_id) {
+        setWorkflowThreadId(response.workflow_thread_id);
+      }
+      setCurrentStatus(response.status);
+
+      const assistantMsg: ChatMessage = {
+        id: createMessageId(),
+        role: "assistant",
+        workflowResponse: response,
+        timestamp: getTimestamp(),
+      };
+
+      setMessages((prev) => [...prev, assistantMsg]);
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : "An unexpected error occurred while communicating with the backend.";
+
+      const errorResponse: WorkflowResponse = {
+        status: "ERROR",
+        error: errorMessage,
+        workflow_thread_id: workflowThreadId || undefined,
+      };
+
+      const errorMsg: ChatMessage = {
+        id: createMessageId(),
+        role: "assistant",
+        workflowResponse: errorResponse,
+        timestamp: getTimestamp(),
+      };
+
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Submit handler from bottom prompt composer
   const handleSubmit = async () => {
-    // Prevent duplicate or empty submissions
     if (isLoading) return;
     const trimmed = promptText.trim();
     if (!trimmed && selectedFiles.length === 0) return;
 
-    setIsLoading(true);
-
-    // Prepare FormData containing prompt and files
-    const formData = prepareWorkflowFormData({
-      prompt: trimmed,
-      files: selectedFiles,
-    });
+    // If currently waiting for user clarification, route the prompt as resume_value
+    if (currentStatus === "WAITING_FOR_USER" && workflowThreadId) {
+      handleResume(trimmed);
+      setPromptText("");
+      setSelectedFiles([]);
+      return;
+    }
 
     const fileAttachments = selectedFiles.map((f) => ({
       name: f.name,
       size: f.size,
     }));
 
-    // Record user message
-    const userMessage: MessageItem = {
-      id: Date.now().toString(),
+    const userMessage: ChatMessage = {
+      id: createMessageId(),
       role: "user",
       content: trimmed,
       files: fileAttachments,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      timestamp: getTimestamp(),
     };
 
     setMessages((prev) => [...prev, userMessage]);
+
+    const formData = prepareWorkflowFormData({
+      prompt: trimmed,
+      files: selectedFiles,
+      workflowThreadId: workflowThreadId || undefined,
+    });
+
     setPromptText("");
     setSelectedFiles([]);
 
-    // Verify prepared FormData structure and demonstrate loading state
-    // In Phase 3, this will call POST /api/workflow
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+    await runWorkflow(formData);
+  };
 
-      const fileCount = formData.getAll("files").length;
-      const fileSummary =
-        fileCount > 0
-          ? ` with ${fileCount} attached ${fileCount === 1 ? "file" : "files"}`
-          : "";
+  // Resume handler for clarification and natural responses
+  const handleResume = async (resumeValue: string) => {
+    if (isLoading || !workflowThreadId) return;
 
-      const assistantMsg: MessageItem = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: `Prompt received${fileSummary}. FormData prepared successfully with 'prompt' and 'files'.`,
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-    } finally {
-      setIsLoading(false);
+    const userMessage: ChatMessage = {
+      id: createMessageId(),
+      role: "user",
+      content: resumeValue,
+      timestamp: getTimestamp(),
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+
+    const formData = prepareWorkflowFormData({
+      workflowThreadId,
+      resumeValue,
+    });
+
+    await runWorkflow(formData);
+  };
+
+  // Approval handler: resumes workflow with { approved: true }
+  const handleApprove = async () => {
+    if (isLoading || !workflowThreadId) return;
+
+    const userMessage: ChatMessage = {
+      id: createMessageId(),
+      role: "user",
+      content: "Approved: Confirm and send email.",
+      timestamp: getTimestamp(),
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+
+    const formData = prepareWorkflowFormData({
+      workflowThreadId,
+      resumeValue: { approved: true },
+    });
+
+    await runWorkflow(formData);
+  };
+
+  // Rejection handler: resumes workflow with { approved: false }
+  const handleReject = async () => {
+    if (isLoading || !workflowThreadId) return;
+
+    const userMessage: ChatMessage = {
+      id: createMessageId(),
+      role: "user",
+      content: "Draft rejected.",
+      timestamp: getTimestamp(),
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+
+    const formData = prepareWorkflowFormData({
+      workflowThreadId,
+      resumeValue: { approved: false },
+    });
+
+    await runWorkflow(formData);
+  };
+
+  const getComposerPlaceholder = () => {
+    if (currentStatus === "WAITING_FOR_USER") {
+      return "Type your answer to the clarification question above...";
     }
+    if (currentStatus === "WAITING_FOR_APPROVAL") {
+      return "Review the draft above and click 'Confirm and Send' or 'Reject'...";
+    }
+    return "Ask AI Email Assistant to draft or reply to an email...";
   };
 
   return (
@@ -85,6 +202,9 @@ export default function Home() {
           messages={messages}
           isLoading={isLoading}
           onSelectPrompt={handleSelectPrompt}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onResume={handleResume}
         />
         <PromptComposer
           prompt={promptText}
@@ -93,6 +213,7 @@ export default function Home() {
           onFilesChange={setSelectedFiles}
           onSubmit={handleSubmit}
           isLoading={isLoading}
+          placeholder={getComposerPlaceholder()}
         />
       </main>
     </div>
