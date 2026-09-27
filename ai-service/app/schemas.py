@@ -92,8 +92,8 @@ class ReviewResponse(BaseModel):
 class GmailContextResult(BaseModel):
     needs_gmail: bool
     selected_thread_id: Optional[str]
-    last_message_id: Optional[str] = None
-    original_subject: Optional[str] = None
+    last_message_id: Optional[str]
+    original_subject: Optional[str]
     context_text: Optional[str]
     clarification_question: Optional[str]
     complete: bool

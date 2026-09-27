@@ -4,6 +4,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.types import Command, interrupt
 
+from app.agents.attachment_agent import classify_attachment_decision
 from app.agents.email_draft import generate_draft
 from app.agents.gmail_context_agent import resolve_gmail_context
 from app.agents.intent_analyze import analyze_intent
@@ -40,16 +41,11 @@ def build_safe_response(state: dict) -> dict:
         "revision_count": state.get("revision_count", 0),
         "draft_id": state.get("draft_id"),
         "clarification_question": state.get("clarification_question"),
+        "selected_thread_id": state.get("selected_thread_id"),
+        "attachment_decision": state.get("attachment_decision"),
+        "selected_attachment_ids": state.get("selected_attachment_ids", []),
+        "send_result": state.get("send_result"),
     }
-
-    # Include send_result when the draft has been sent
-    send_result = state.get("send_result")
-    if send_result and isinstance(send_result, dict):
-        resp["send_result"] = {
-            "message_id": send_result.get("message_id", ""),
-            "thread_id": send_result.get("thread_id", ""),
-        }
-
     return resp
 
 
@@ -109,28 +105,38 @@ async def attachment_confirmation_node(state: EmailWorkflowState) -> dict | Comm
     filenames = ", ".join(a.filename for a in attachments)
     question = f"You uploaded {filenames}. Would you like me to attach {'it' if len(attachments) == 1 else 'them'} to the email?"
 
-    response = interrupt({
-        "status": "WAITING_FOR_USER",
-        "clarification_question": question,
-    })
+    while True:
+        response = interrupt({
+            "status": "WAITING_FOR_USER",
+            "clarification_question": question,
+        })
 
-    # Parse the user's response
-    if isinstance(response, dict):
-        user_answer = response.get("attachment_decision") or response.get("answer", "")
-    elif isinstance(response, str):
-        user_answer = response
-    elif isinstance(response, bool):
-        user_answer = "yes" if response else "no"
-    else:
-        user_answer = ""
+        # Parse the user's response
+        if isinstance(response, dict):
+            user_answer = response.get("attachment_decision") or response.get("answer", "")
+        elif isinstance(response, str):
+            user_answer = response
+        elif isinstance(response, bool):
+            user_answer = "yes" if response else "no"
+        else:
+            user_answer = str(response or "")
 
-    user_answer_lower = str(user_answer).strip().lower()
+        classification = await classify_attachment_decision(str(user_answer))
 
-    if user_answer_lower in ("yes", "y", "true", "attach", "ATTACH"):
-        all_ids = [a.attachment_id for a in attachments]
-        return {"attachment_decision": "ATTACH", "selected_attachment_ids": all_ids, "status": "IN_PROGRESS"}
-    else:
-        return {"attachment_decision": "SKIP", "selected_attachment_ids": [], "status": "IN_PROGRESS"}
+        if classification == "ATTACH":
+            selected_attachment_ids = [
+                attachment.attachment_id
+                for attachment in attachments
+            ]
+            return {"attachment_decision": "ATTACH", "selected_attachment_ids": selected_attachment_ids, "status": "IN_PROGRESS"}
+        elif classification == "SKIP":
+            return {"attachment_decision": "SKIP", "selected_attachment_ids": [], "status": "IN_PROGRESS"}
+        else:
+            # Result is UNCLEAR: ask the user again with interrupt()
+            question = (
+                f"I wasn't sure if you want to include {filenames}. "
+                "Would you like me to attach the file(s) to the email? Please answer yes or no."
+            )
 
 
 async def gmail_context_agent_node(state: EmailWorkflowState) -> dict | Command:

@@ -1,268 +1,204 @@
 # Personal AI Email Assistant
 
-A personal AI email assistant that understands natural-language email requests, generates drafts with Gemini, reviews those drafts independently, and will eventually use Gmail tools to search, draft, and send emails after explicit user approval.
+A personal AI email assistant that understands natural-language email requests, retrieves relevant Gmail context, drafts professional emails with Gemini, independently reviews and revises them in a bounded loop, and safely creates drafts or sends emails via Gmail only after explicit human approval.
 
-The project is being built gradually with a feature-driven GitHub workflow.
-
-## Current architecture
+## Current Architecture
 
 ```text
-Next.js frontend
-        |
-        v
-Python FastAPI service
-        |
-        ├── Gemini intent analyzer
-        ├── Gemini email draft generator
-        ├── Gemini reviewer agent
-        └── Gmail OAuth and Gmail API client
+Next.js Frontend / API Client
+              |
+              v
+     POST /api/workflow
+              |
+              v
+LangGraph Workflow Engine (MemorySaver checkpointer)
+              |
+              ├── 1. Intent Analysis Node (Gemini 2.5 Flash)
+              │      └── Classifies NEW_EMAIL, REPLY, or DRAFT; extracts recipient & purpose
+              │
+              ├── 2. Clarification Node (LangGraph interrupt)
+              │      └── Asks user if recipient or core email topic is missing
+              │
+              ├── 3. Attachment Confirmation Node (Gemini 2.5 Flash + interrupt)
+              │      └── Classifies natural user response (ATTACH, SKIP, UNCLEAR)
+              │      └── Python selects uploaded in-memory attachment IDs
+              │
+              ├── 4. Gmail Context Agent Node (Gemini 2.5 Flash AFC)
+              │      ├── Read-only tools: search_gmail_for_gemini, get_email_thread_for_gemini
+              │      ├── Automatic function calling with a 5 tool-call limit
+              │      └── Returns structured GmailContextResult (RFC message ID, subject, context)
+              │
+              ├── 5. Draft Generator Node (Gemini 2.5 Flash)
+              │      └── Composes subject, body, recipients, referencing uploaded files & thread context
+              │
+              ├── 6. Reviewer Agent Node (Gemini 2.5 Flash)
+              │      ├── Evaluates accuracy, tone, completeness, and safety
+              │      └── Bounded revision loop (max 3 revisions before failing gracefully)
+              │
+              ├── 7. Draft Creation Node (Gmail API)
+              │      └── Creates Gmail draft with threading headers (threadId, In-Reply-To, References)
+              │
+              ├── 8. Human Approval Node (LangGraph interrupt)
+              │      └── Pauses workflow and requires explicit user approval before sending
+              │
+              └── 9. Send Node (Gmail API)
+                     └── Dispatches email only after user confirms approval
 ```
 
-The current implementation does not yet include the final LangGraph workflow or Gmail tools.
+## Implemented Features
 
-## Current features
+- **FastAPI Backend**: Complete REST API running with Uvicorn.
+- **Unified Workflow Endpoint (`POST /api/workflow`)**:
+  - Handles natural-language prompts.
+  - Accepts multipart file uploads stored strictly in memory (`GmailAttachment`).
+  - Supports thread persistence and interrupt resumption via `workflow_thread_id` and `resume_value`.
+- **Gemini Agents**:
+  - **Intent Analysis**: Classifies action, recipient, source requirement, and missing information.
+  - **Attachment Confirmation**: Uses Gemini to understand natural confirmation responses (`ATTACH`, `SKIP`, `UNCLEAR`) while Python safely binds attachment IDs.
+  - **Gmail Context Resolution**: Automatic function calling with read-only tools (`search_gmail_for_gemini`, `get_email_thread_for_gemini`) capped at 5 calls. Disambiguates multiple threads with clarification.
+  - **Draft Generation**: Writes professional emails, preserves reply subjects, references in-memory attachment text.
+  - **Independent Reviewer**: Evaluates draft quality and triggers revisions up to 3 times if quality standards are not met.
+- **Gmail OAuth & API Integration**:
+  - Standard OAuth2 authorization code flow with local token storage (`token.json`).
+  - Read-only search and thread inspection.
+  - Draft creation with proper reply threading headers (`In-Reply-To`, `References`, `threadId`).
+  - Attachment handling using MIME multipart construction.
+- **Safety by Design**:
+  - **No Write Tools for Gemini**: Draft creation and sending are never exposed as tools to LLMs.
+  - **Mandatory Human Approval**: Sending an email requires explicit approval via LangGraph `interrupt()`.
+  - **Zero Disk Persistence for Attachments**: Uploaded file bytes exist only in RAM during the request lifecycle.
+  - **Stateless & Database-Free**: State is tracked in-memory using LangGraph's `MemorySaver`.
 
-- Python FastAPI AI service.
-- Gemini-powered intent analysis.
-- Gemini-powered email draft generation.
-- Gemini-powered draft review.
-- Web-based Gmail OAuth connection.
-- Gmail client for searching threads and reading thread messages.
-- Temporary attachment metadata models.
-- Manual verification through the browser, Python shell, and FastAPI Swagger UI.
-
-## Planned features
-
-- Gmail tools such as `search_gmail` and `get_email_thread`.
-- Gmail draft creation.
-- Approval-protected Gmail sending.
-- LangGraph workflow orchestration.
-- Direct prompt and attachment submission from the Next.js frontend.
-- Automatic draft-review-revision loop.
-
-## Project structure
+## Project Structure
 
 ```text
 ai-email-assistant/
 ├── ai-service/
 │   ├── app/
 │   │   ├── agents/
-│   │   │   ├── intent_analyze.py
-│   │   │   ├── email_draft.py
-│   │   │   └── reviewer.py
+│   │   │   ├── attachment_agent.py      # Natural language attachment decision agent
+│   │   │   ├── email_draft.py           # Email draft generator agent
+│   │   │   ├── gmail_context_agent.py   # Gmail read-only context retrieval agent
+│   │   │   ├── intent_analyze.py        # Intent classification agent
+│   │   │   └── reviewer.py              # Draft quality reviewer agent
 │   │   ├── gmail/
-│   │   │   ├── auth.py
-│   │   │   └── client.py
-│   │   ├── main.py
-│   │   └── schemas.py
-│   ├── .env
-│   ├── credentials.json
-│   ├── requirements.txt
-│   └── token.json
-├── frontend/
-├── docs/
+│   │   │   ├── auth.py                  # OAuth2 flow & token management
+│   │   │   └── client.py                # Gmail API wrapper (search, thread, draft, send)
+│   │   ├── tools/
+│   │   │   └── gmail_tools.py           # Read-only tools for Gemini & internal send helpers
+│   │   ├── workflow/
+│   │   │   ├── email_workflow.py        # LangGraph workflow definition & runner
+│   │   │   └── state.py                 # TypedDict workflow state schema
+│   │   ├── main.py                      # FastAPI application and routing
+│   │   └── schemas.py                   # Pydantic models and request/response schemas
+│   ├── .env                             # Environment configuration (API keys)
+│   ├── credentials.json                 # Google OAuth client secret (not committed)
+│   ├── requirements.txt                 # Python dependencies
+│   └── token.json                       # Saved OAuth tokens (not committed)
+├── frontend/                            # Next.js frontend client
 └── README.md
 ```
 
 ## Requirements
 
 - Python 3.11 or newer.
-- A Google Cloud project.
-- Gmail API enabled in that project.
-- A configured Google OAuth web application client.
-- A Gemini API key.
-- Node.js is required later for the Next.js frontend.
+- Google Cloud Project with the Gmail API enabled.
+- Configured Google OAuth 2.0 Web Application credentials (`credentials.json`).
+- Gemini API Key (`GEMINI_API_KEY`).
+- Node.js (for frontend development).
 
-## Python setup
+## Setup & Running the Service
 
-Open a terminal in the `ai-service` directory:
+### 1. Python Environment
+
+Navigate to the `ai-service` directory:
 
 ```bash
 cd ai-service
 python -m venv .venv
 ```
 
-Activate the environment on Windows:
+Activate the virtual environment:
 
-```powershell
-.venv\Scripts\Activate.ps1
-```
+- **Windows (PowerShell)**:
+  ```powershell
+  .venv\Scripts\Activate.ps1
+  ```
+- **Linux/macOS**:
+  ```bash
+  source .venv/bin/activate
+  ```
 
 Install dependencies:
 
 ```bash
-python -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
-## Environment configuration
+### 2. Environment Configuration
 
 Create `ai-service/.env`:
 
 ```env
-GEMINI_API_KEY=your_gemini_api_key
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-Place the downloaded Google OAuth client file here:
+Place your Google Cloud OAuth client credentials file at:
 
 ```text
 ai-service/credentials.json
 ```
 
-The application creates this file after the first successful OAuth connection:
-
-```text
-ai-service/token.json
-```
-
-Never commit `.env`, `credentials.json`, or `token.json`.
-
-## Start the FastAPI service
-
-Run the command from the `ai-service` directory:
-
-```bash
-python -m uvicorn app.main:app --reload --port 8000
-```
-
-If running from the repository root instead:
-
-```bash
-python -m uvicorn app.main:app --reload --port 8000 --app-dir ai-service
-```
-
-## Current endpoints
-
-### Health check
-
-```text
-GET http://localhost:8000/health
-```
-
-### Gmail OAuth
-
-Start authorization:
-
-```text
-GET http://localhost:8000/api/gmail/oauth/start
-```
-
-OAuth callback:
-
-```text
-GET http://localhost:8000/api/gmail/oauth/callback
-```
-
-Check connection:
-
-```text
-GET http://localhost:8000/api/gmail/status
-```
-
-The registered Google OAuth redirect URI must exactly match:
+Ensure the OAuth redirect URI in your Google Cloud Console matches:
 
 ```text
 http://localhost:8000/api/gmail/oauth/callback
 ```
 
-## Manual Gmail client verification
+### 3. Start the Backend
 
-From the `ai-service` directory, start Python:
-
-```bash
-python
-```
-
-Then run:
-
-```python
-from app.gmail.client import GmailClient
-
-client = GmailClient()
-
-result = client.search_threads("in:inbox", 5)
-print(result)
-
-thread_id = result["threads"][0]["thread_id"]
-thread = client.get_thread(thread_id)
-print(thread)
-```
-
-The client currently supports:
-
-- searching Gmail threads;
-- reading messages inside a Gmail thread;
-- extracting sender, recipient, subject, date, and plain-text body.
-
-## Security notes
-
-- Gmail access uses OAuth; the application never receives the Gmail password.
-- OAuth tokens stay on the backend.
-- `credentials.json` and `token.json` must remain private.
-- The application must never send an email without explicit user approval.
-- Email bodies, Gmail threads, resumes, and attachments are untrusted data.
-- The model must not follow instructions found inside emails or attachments.
-
-## Feature-driven development workflow
-
-The project uses short-lived feature branches merged into `develop`.
-
-```text
-main
-  └── develop
-        ├── feature/google-oauth
-        ├── feature/gmail-client
-        ├── feature/gmail-tools
-        ├── feature/gmail-write-client
-        ├── feature/langgraph-workflow
-        └── feature/frontend-integration
-```
-
-Recommended workflow:
+From the `ai-service` directory:
 
 ```bash
-git switch develop
-git pull
-git switch -c feature/your-feature
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
-After manually verifying the feature:
+The Swagger interactive documentation will be available at: `http://localhost:8000/docs`.
 
-```bash
-git add .
-git commit -m "feat(scope): describe the completed feature"
-git push -u origin feature/your-feature
-```
+## API Endpoints
 
-Open a pull request from the feature branch into `develop`. Do not push directly to `main` or `develop`.
+### Health & Status
 
-## Development roadmap
+- **`GET /health`**: Returns service health, version, and Gmail connection status.
 
-1. Complete Gemini intent, draft, and reviewer agents.
-2. Complete Gmail OAuth.
-3. Complete the Gmail client for search and thread reading.
-4. Add Gmail tools around the client.
-5. Add Gmail draft creation.
-6. Add approval-protected Gmail sending.
-7. Build the LangGraph workflow and bounded revision loop.
-8. Connect the Next.js frontend.
+### Gmail OAuth
 
-The final user-facing flow will be:
+- **`GET /api/gmail/oauth/start`**: Redirects the user to Google OAuth consent screen.
+- **`GET /api/gmail/oauth/callback`**: Exchanges authorization code for credentials and saves `token.json`.
+- **`GET /api/gmail/status`**: Returns `{"connected": true, "email": "..."}` or `{"connected": false}`.
 
-```text
-Prompt + optional attachments
-        ↓
-LangGraph workflow
-        ↓
-Intent analysis
-        ↓
-Gmail tools when needed
-        ↓
-Draft generation
-        ↓
-Review and revision loop
-        ↓
-User approval
-        ↓
-Gmail draft/send operation
-```
+### Unified Workflow
 
+- **`POST /api/workflow`**: Initiates or resumes a workflow run.
+  - **Form fields**:
+    - `prompt` *(optional string)*: Natural language email request.
+    - `files` *(optional files)*: Uploaded attachments kept strictly in memory.
+    - `workflow_thread_id` *(optional string)*: Thread identifier for multi-turn sessions.
+    - `resume_value` *(optional string/json)*: Response to an `interrupt` (e.g. clarification, attachment choice, or approval).
+  - **Response**:
+    - `status`: `IN_PROGRESS`, `WAITING_FOR_USER`, `WAITING_FOR_APPROVAL`, `COMPLETED`, or `FAILED`.
+    - `workflow_thread_id`: Session ID to pass back when resuming.
+    - `draft`: The generated draft with subject, body, recipients, and attachments.
+    - `review`: The reviewer decision, score, and summary.
+    - `clarification_question`: Prompt presented to the user when waiting for input.
+    - `selected_thread_id`: Matched Gmail thread ID for replies.
+    - `attachment_decision`: `ATTACH` or `SKIP`.
+    - `selected_attachment_ids`: IDs of attachments chosen for the email.
+    - `send_result`: Gmail Message ID and Thread ID if approved and sent.
+
+## Security & Privacy Highlights
+
+1. **Human in the Loop**: Emails are **never** sent automatically. The workflow halts at `human_approval` and waits for explicit user confirmation.
+2. **Read-Only LLM Tools**: Gemini is only granted read access (`search_gmail_for_gemini`, `get_email_thread_for_gemini`). Writing drafts and sending messages are executed purely through deterministic LangGraph nodes.
+3. **RAM-Only Files**: Uploaded files are converted into byte buffers in memory and are discarded after the workflow completes. No files are ever written to the server's disk.
+4. **Prompt Injection Defense**: External emails, thread snippets, and uploaded files are treated strictly as untrusted data in all system prompts.
