@@ -46,6 +46,10 @@ def _resolve_attachment_ids(attachment_ids: list[str] | None) -> list[GmailAttac
     return resolved
 
 
+# ---------------------------------------------------------------------------
+# Tools SAFE for Gemini (read-only Gmail access)
+# ---------------------------------------------------------------------------
+
 @tool
 def search_gmail(query: str, max_results: int = 10) -> dict:
     """Search Gmail threads matching the given query.
@@ -58,7 +62,7 @@ def search_gmail(query: str, max_results: int = 10) -> dict:
         max_results: Maximum number of threads to return (default 10).
 
     Returns:
-        A dict with "threads" (list of thread_id + snippet) and "total".
+        A dict with "threads" (list of thread_id, snippet, sender, subject, date) and "total".
     """
     client = GmailClient()
     return client.search_threads(query=query, max_results=max_results)
@@ -81,24 +85,31 @@ def get_email_thread(thread_id: str) -> dict:
     return client.get_thread(thread_id=thread_id)
 
 
-@tool
-def create_gmail_draft(
+# ---------------------------------------------------------------------------
+# Internal functions — NOT exposed to Gemini as tools.
+# Draft creation is controlled by LangGraph.
+# Sending is controlled by LangGraph after human approval.
+# ---------------------------------------------------------------------------
+
+def _create_gmail_draft_internal(
     to: list[str],
     subject: str,
     body: str,
     attachment_ids: list[str] | None = None,
+    thread_id: str | None = None,
+    in_reply_to: str | None = None,
+    references: str | None = None,
 ) -> dict:
-    """Create a draft email in Gmail.
-
-    Builds a MIME email with the specified recipients, subject,
-    plain-text body, and optional attachments from the current request,
-    then saves it to Gmail Drafts without sending it.
+    """Create a draft email in Gmail (internal, not a Gemini tool).
 
     Args:
         to: List of recipient email addresses.
         subject: Subject line for the email.
         body: Plain-text body content of the email.
         attachment_ids: Optional list of attachment IDs uploaded in the current request.
+        thread_id: Gmail thread ID (for replies).
+        in_reply_to: RFC-2822 Message-ID of the message being replied to.
+        references: RFC-2822 References header value.
 
     Returns:
         A dict with "draft_id" and "message_id".
@@ -113,16 +124,19 @@ def create_gmail_draft(
         subject=subject,
         body=body,
         attachments=resolved_attachments if resolved_attachments else None,
+        thread_id=thread_id,
+        in_reply_to=in_reply_to,
+        references=references,
     )
 
 
-def send_gmail(
+def _send_gmail_internal(
     to: list[str],
     subject: str,
     body: str,
     attachment_ids: list[str] | None = None,
 ) -> dict:
-    """Send an email via Gmail.
+    """Send an email via Gmail (internal, not a Gemini tool).
 
     Args:
         to: List of recipient email addresses.

@@ -1,6 +1,8 @@
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from app.gmail.auth import (
@@ -11,12 +13,21 @@ from app.gmail.auth import (
     save_credentials,
     store_oauth_state,
 )
-from app.gmail.client import get_gmail_service
+from app.gmail.client import GmailAttachment, get_gmail_service
+from app.workflow.email_workflow import run_email_workflow
 
 
 app = FastAPI(
     title="AI Email Assistant",
-    version="0.3.0",
+    version="0.4.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -145,4 +156,74 @@ def gmail_status():
         raise HTTPException(
             status_code=502,
             detail=f"Gmail connection failed: {exc}",
+        ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Unified workflow endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/api/workflow")
+async def workflow_endpoint(
+    prompt: str = Form(default=""),
+    workflow_thread_id: str = Form(default=""),
+    resume_value: str = Form(default=""),
+    files: list[UploadFile] = File(default=[]),
+):
+    """
+    Single endpoint that accepts:
+    - user prompt
+    - optional uploaded files (in-memory only)
+    - workflow thread ID (for MemorySaver)
+    - optional resume_value (JSON string for clarification/approval resumes)
+
+    Uploaded files are converted to in-memory GmailAttachment objects and
+    never written to disk.
+    """
+    import json as _json
+
+    # Generate a thread ID if not provided (new workflow)
+    if not workflow_thread_id:
+        workflow_thread_id = str(uuid.uuid4())
+
+    # Convert uploaded files to in-memory GmailAttachment objects
+    attachments: list[GmailAttachment] = []
+    for f in files:
+        file_bytes = await f.read()
+        att = GmailAttachment(
+            attachment_id=str(uuid.uuid4()),
+            filename=f.filename or "unnamed",
+            content_type=f.content_type or "application/octet-stream",
+            data=file_bytes,
+        )
+        attachments.append(att)
+
+    # Parse resume_value from JSON string if provided
+    parsed_resume = None
+    if resume_value:
+        try:
+            parsed_resume = _json.loads(resume_value)
+        except _json.JSONDecodeError:
+            # Treat plain strings as the resume value
+            parsed_resume = resume_value
+
+    try:
+        result = await run_email_workflow(
+            user_prompt=prompt,
+            workflow_thread_id=workflow_thread_id,
+            attachments=attachments if attachments else None,
+            resume_value=parsed_resume,
+        )
+
+        # Include the workflow_thread_id so the client can resume later
+        result["workflow_thread_id"] = workflow_thread_id
+
+        return result
+
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Workflow error: {exc}",
         ) from exc

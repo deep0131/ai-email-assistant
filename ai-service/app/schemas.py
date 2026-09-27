@@ -26,18 +26,18 @@ class IntentRequest(BaseModel):
 
 class IntentResponse(BaseModel):
     action: ActionType
-    recipient: Optional[str] = None
+    recipient: Optional[str]
     source: SourceType
     has_email_content: bool
     needs_attachment: bool
     confidence: float = Field(ge=0.0, le=1.0)
-    missing_information: List[str] = Field(default_factory=list)
+    missing_information: List[str]
     reasoning_summary: str
 
 
 class EmailRecipient(BaseModel):
-    name: Optional[str] = None
-    email: Optional[str] = None
+    name: Optional[str]
+    email: Optional[str]
 
 
 class AvailableAttachment(BaseModel):
@@ -54,7 +54,6 @@ class EmailDraftRequest(BaseModel):
     original_prompt: str
     intent: IntentResponse
     context_text: Optional[str] = None
-    attachment_text: Optional[str] = None
     available_attachments: List[AvailableAttachment] = Field(default_factory=list)
 
 
@@ -63,9 +62,9 @@ class EmailDraftResponse(BaseModel):
     to: List[EmailRecipient]
     body: str
     action: ActionType
-    attachments: List[EmailAttachment] = Field(default_factory=list)
-    questions: List[str] = Field(default_factory=list)
-    ready_for_approval: bool = False
+    attachments: List[EmailAttachment]
+    questions: List[str]
+    ready_for_approval: bool
 
 
 class ReviewDecision(str, Enum):
@@ -78,7 +77,6 @@ class ReviewRequest(BaseModel):
     intent: IntentResponse
     draft: EmailDraftResponse
     context_text: Optional[str] = None
-    attachment_text: Optional[str] = None
     available_attachments: List[AvailableAttachment] = Field(default_factory=list)
 
 
@@ -86,6 +84,22 @@ class ReviewResponse(BaseModel):
     decision: ReviewDecision
     score: float = Field(ge=0.0, le=1.0)
     summary: str
-    issues: List[str] = Field(default_factory=list)
-    revision_instructions: List[str] = Field(default_factory=list)
-    ready_for_approval: bool = False
+    issues: List[str]
+    revision_instructions: List[str]
+    ready_for_approval: bool
+
+
+class GmailContextResult(BaseModel):
+    needs_gmail: bool
+    selected_thread_id: Optional[str]
+    last_message_id: Optional[str] = None
+    original_subject: Optional[str] = None
+    context_text: Optional[str]
+    clarification_question: Optional[str]
+    complete: bool
+
+
+class AttachmentDecision(str, Enum):
+    ATTACH = "ATTACH"
+    SKIP = "SKIP"
+    PENDING = "PENDING"
