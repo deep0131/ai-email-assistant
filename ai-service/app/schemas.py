@@ -53,8 +53,7 @@ class EmailAttachment(BaseModel):
 class EmailDraftRequest(BaseModel):
     original_prompt: str
     intent: IntentResponse
-    context_text: Optional[str] = None
-    available_attachments: List[AvailableAttachment] = Field(default_factory=list)
+    context_text: str | None = None
 
 
 class EmailDraftResponse(BaseModel):

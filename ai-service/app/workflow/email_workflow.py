@@ -167,39 +167,16 @@ async def gmail_context_agent_node(state: EmailWorkflowState) -> dict | Command:
 
 
 async def generate_draft_node(state: EmailWorkflowState) -> dict:
-    """Generate an email draft using the draft agent."""
-    intent = state["intent"]
-    available_attachments = state.get("available_attachments", [])
-    attachments = state.get("attachments", [])
-
-    # Filter attachments based on attachment_decision
-    decision = state.get("attachment_decision")
-    selected_ids = state.get("selected_attachment_ids", [])
-    if decision == "SKIP":
-        attachments = []
-        available_attachments = []
-    elif decision == "ATTACH" and selected_ids:
-        attachments = [a for a in attachments if a.attachment_id in selected_ids]
-        available_attachments = [a for a in available_attachments if a.attachment_id in selected_ids]
-
-    # Inject original subject for replies
-    context_text = state.get("context_text")
-    original_subject = state.get("original_subject")
-    if intent.action == ActionType.REPLY and original_subject and context_text:
-        context_text = f"ORIGINAL SUBJECT: {original_subject}\n\n{context_text}"
-
     draft_request = EmailDraftRequest(
         original_prompt=state.get("user_prompt", ""),
-        intent=intent,
-        context_text=context_text,
-        available_attachments=available_attachments,
+        intent=state["intent"],
+        context_text=state.get("context_text"),
     )
 
-    draft = await generate_draft(draft_request, attachments=attachments)
-
-    # Strip any attachment IDs the LLM hallucinated
-    valid_ids = {att.attachment_id for att in attachments} if attachments else {att.attachment_id for att in available_attachments}
-    draft.attachments = [a for a in draft.attachments if a.attachment_id in valid_ids]
+    draft = await generate_draft(
+        request=draft_request,
+        attachments=state.get("attachments", []),
+    )
 
     return {"draft": draft}
 
