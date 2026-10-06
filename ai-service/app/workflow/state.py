@@ -25,6 +25,8 @@ class EmailWorkflowState(TypedDict, total=False):
     send_result: dict | None
     status: str
     clarification_question: str | None
+    # Approval
+    approval_decision: str | None
     # Attachment confirmation
     attachment_decision: str | None
     selected_attachment_ids: list[str]

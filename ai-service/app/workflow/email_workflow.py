@@ -351,7 +351,15 @@ async def human_approval_node(state: EmailWorkflowState) -> dict:
     )
 
     return {
-        "status": "APPROVED" if is_approved else "REJECTED",
+        "approval_decision": "APPROVED" if is_approved else "REJECTED",
+    }
+
+
+async def reject_approved_draft_node(state: EmailWorkflowState) -> dict:
+    """Mark the workflow as rejected when the user declines the draft."""
+    return {
+        "status": "REJECTED",
+        "approval_decision": "REJECTED",
     }
 
 
@@ -362,7 +370,10 @@ async def send_approved_draft_node(state: EmailWorkflowState) -> dict:
         raise ValueError("Cannot send without a Gmail draft ID")
 
     result = GmailClient().send_draft(draft_id)
-    return {"status": "SENT", "send_result": result}
+    return {
+        "status": "SENT",
+        "send_result": result,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -408,6 +419,7 @@ async def review_failed_node(state: EmailWorkflowState) -> dict | Command:
                 "revision_count": 0,
                 "status": "IN_PROGRESS",
                 "clarification_question": None,
+                "approval_decision": None,
             },
             goto="generate_draft",
         )
@@ -470,6 +482,7 @@ def _do_clarification(question: str) -> dict | Command:
                 "last_message_id": None,
                 "original_subject": None,
                 "send_result": None,
+                "approval_decision": None,
             },
             goto="analyze_intent",
         )
@@ -584,10 +597,10 @@ def route_after_review(state: EmailWorkflowState) -> str:
 
 
 def route_after_approval(state: EmailWorkflowState) -> str:
-    """After human approval: send or stop."""
-    if state.get("status") == "APPROVED":
+    """After human approval: send or reject."""
+    if state.get("approval_decision") == "APPROVED":
         return "send_approved_draft"
-    return "end"
+    return "reject_approved_draft"
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +619,7 @@ builder.add_node("revise_draft", revise_draft_node)
 builder.add_node("review_failed", review_failed_node)
 builder.add_node("create_gmail_draft", create_gmail_draft_node)
 builder.add_node("human_approval", human_approval_node)
+builder.add_node("reject_approved_draft", reject_approved_draft_node)
 builder.add_node("send_approved_draft", send_approved_draft_node)
 
 builder.set_entry_point("analyze_intent")
@@ -678,18 +692,21 @@ builder.add_edge("review_failed", END)
 # create_gmail_draft -> human_approval
 builder.add_edge("create_gmail_draft", "human_approval")
 
-# human_approval -> send_approved_draft | END
+# human_approval -> send_approved_draft | reject_approved_draft
 builder.add_conditional_edges(
     "human_approval",
     route_after_approval,
     {
         "send_approved_draft": "send_approved_draft",
-        "end": END,
+        "reject_approved_draft": "reject_approved_draft",
     },
 )
 
 # send_approved_draft -> END
 builder.add_edge("send_approved_draft", END)
+
+# reject_approved_draft -> END
+builder.add_edge("reject_approved_draft", END)
 
 workflow_graph = builder.compile(checkpointer=memory)
 
@@ -744,6 +761,7 @@ async def run_email_workflow(
             "attachments": attachments_list,
             "available_attachments": available_attachments,
             "revision_count": 0,
+            "approval_decision": None,
         }
 
         final_state = await workflow_graph.ainvoke(initial_state, config=config)
