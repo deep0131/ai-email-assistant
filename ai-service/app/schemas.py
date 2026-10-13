@@ -17,6 +17,7 @@ class IntentResponse(BaseModel):
     has_email_content: bool
     confidence: float = Field(ge=0.0, le=1.0)
     missing_information: list[str]
+    clarification_question: str
     reasoning_summary: str
 
 
@@ -36,7 +37,6 @@ class EmailDraftResponse(BaseModel):
     body: str
     action: ActionType
     questions: list[str]
-    ready_for_approval: bool
 
 
 class ReviewRequest(BaseModel):
@@ -56,4 +56,3 @@ class ReviewResponse(BaseModel):
     summary: str
     issues: list[str]
     revision_instructions: list[str]
-    ready_for_approval: bool

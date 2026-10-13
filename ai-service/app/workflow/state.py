@@ -1,4 +1,4 @@
-from typing import Any, TypedDict
+from typing import TypedDict
 
 from app.gmail.client import GmailAttachment
 from app.schemas import (
@@ -26,5 +26,6 @@ class EmailWorkflowState(TypedDict, total=False):
     clarification_question: str | None
 
     # Approval
-    approval_decision: bool | None
+    approval_decision: str | None
+    send_result: dict | None
     error: str | None
