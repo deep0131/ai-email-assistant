@@ -1,69 +1,48 @@
 from enum import Enum
-from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
 
 class ActionType(str, Enum):
     NEW_EMAIL = "NEW_EMAIL"
-    REPLY = "REPLY"
-    DRAFT = "DRAFT"
-    UNKNOWN = "UNKNOWN"
-
-
-class SourceType(str, Enum):
-    USER_PROVIDED = "USER_PROVIDED"
-    GMAIL_REQUIRED = "GMAIL_REQUIRED"
-    UNKNOWN = "UNKNOWN"
 
 
 class IntentRequest(BaseModel):
-    prompt: str = Field(
-        ...,
-        description="The user's natural-language email request",
-    )
+    prompt: str
 
 
 class IntentResponse(BaseModel):
     action: ActionType
-    recipient: Optional[str]
-    source: SourceType
+    recipient: str | None
     has_email_content: bool
-    needs_attachment: bool
     confidence: float = Field(ge=0.0, le=1.0)
-    missing_information: List[str]
+    missing_information: list[str]
+    clarification_question: str
     reasoning_summary: str
 
 
 class EmailRecipient(BaseModel):
-    name: Optional[str]
-    email: Optional[str]
-
-
-class AvailableAttachment(BaseModel):
-    attachment_id: str
-    filename: str
-
-
-class EmailAttachment(BaseModel):
-    attachment_id: str
-    filename: str
+    name: str | None
+    email: str | None
 
 
 class EmailDraftRequest(BaseModel):
     original_prompt: str
     intent: IntentResponse
-    context_text: str | None = None
 
 
 class EmailDraftResponse(BaseModel):
     subject: str
-    to: List[EmailRecipient]
+    to: list[EmailRecipient]
     body: str
     action: ActionType
-    attachments: List[EmailAttachment]
-    questions: List[str]
-    ready_for_approval: bool
+    questions: list[str]
+
+
+class ReviewRequest(BaseModel):
+    original_prompt: str
+    intent: IntentResponse
+    draft: EmailDraftResponse
 
 
 class ReviewDecision(str, Enum):
@@ -71,34 +50,9 @@ class ReviewDecision(str, Enum):
     FAIL = "FAIL"
 
 
-class ReviewRequest(BaseModel):
-    original_prompt: str
-    intent: IntentResponse
-    draft: EmailDraftResponse
-    context_text: Optional[str] = None
-    available_attachments: List[AvailableAttachment] = Field(default_factory=list)
-
-
 class ReviewResponse(BaseModel):
     decision: ReviewDecision
     score: float = Field(ge=0.0, le=1.0)
     summary: str
-    issues: List[str]
-    revision_instructions: List[str]
-    ready_for_approval: bool
-
-
-class GmailContextResult(BaseModel):
-    needs_gmail: bool
-    selected_thread_id: Optional[str]
-    last_message_id: Optional[str]
-    original_subject: Optional[str]
-    context_text: Optional[str]
-    clarification_question: Optional[str]
-    complete: bool
-
-
-class AttachmentDecision(str, Enum):
-    ATTACH = "ATTACH"
-    SKIP = "SKIP"
-    PENDING = "PENDING"
+    issues: list[str]
+    revision_instructions: list[str]
