@@ -4,65 +4,65 @@
 
 @layer base {
   :root {
-    --background: 0 0% 5%;
-    --foreground: 0 0% 98%;
+    --background: #0a0a0a;
+    --foreground: #fafafa;
 
-    --card: 0 0% 8%;
-    --card-foreground: 0 0% 98%;
+    --card: #141414;
+    --card-foreground: #fafafa;
 
-    --popover: 0 0% 8%;
-    --popover-foreground: 0 0% 98%;
+    --popover: #141414;
+    --popover-foreground: #fafafa;
 
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
+    --primary: #fafafa;
+    --primary-foreground: #171717;
 
-    --secondary: 0 0% 14%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: #242424;
+    --secondary-foreground: #fafafa;
 
-    --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 65%;
+    --muted: #262626;
+    --muted-foreground: #a6a6a6;
 
-    --accent: 0 0% 16%;
-    --accent-foreground: 0 0% 98%;
+    --accent: #292929;
+    --accent-foreground: #fafafa;
 
-    --destructive: 0 62% 30%;
-    --destructive-foreground: 0 0% 98%;
+    --destructive: #7b1d1d;
+    --destructive-foreground: #fafafa;
 
-    --border: 0 0% 18%;
-    --input: 0 0% 18%;
-    --ring: 0 0% 40%;
+    --border: #2e2e2e;
+    --input: #2e2e2e;
+    --ring: #666666;
 
     --radius: 0.5rem;
   }
 
   .dark {
-    --background: 0 0% 5%;
-    --foreground: 0 0% 98%;
+    --background: #0a0a0a;
+    --foreground: #fafafa;
 
-    --card: 0 0% 8%;
-    --card-foreground: 0 0% 98%;
+    --card: #141414;
+    --card-foreground: #fafafa;
 
-    --popover: 0 0% 8%;
-    --popover-foreground: 0 0% 98%;
+    --popover: #141414;
+    --popover-foreground: #fafafa;
 
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
+    --primary: #fafafa;
+    --primary-foreground: #171717;
 
-    --secondary: 0 0% 14%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: #242424;
+    --secondary-foreground: #fafafa;
 
-    --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 65%;
+    --muted: #262626;
+    --muted-foreground: #a6a6a6;
 
-    --accent: 0 0% 16%;
-    --accent-foreground: 0 0% 98%;
+    --accent: #292929;
+    --accent-foreground: #fafafa;
 
-    --destructive: 0 62% 30%;
-    --destructive-foreground: 0 0% 98%;
+    --destructive: #7b1d1d;
+    --destructive-foreground: #fafafa;
 
-    --border: 0 0% 18%;
-    --input: 0 0% 18%;
-    --ring: 0 0% 40%;
+    --border: #2e2e2e;
+    --input: #2e2e2e;
+    --ring: #666666;
   }
 }
 
@@ -72,7 +72,6 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
 
