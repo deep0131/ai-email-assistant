@@ -21,7 +21,7 @@ export function EmptyState() {
   ];
 
   return (
-    <div className="flex flex-col items-center justify-center py-12 px-4 text-center max-w-[750px] mx-auto my-auto animate-in fade-in duration-500">
+    <div className="flex flex-col items-center justify-center py-12 px-4 text-center max-w-[720px] mx-auto my-auto animate-in fade-in duration-500">
       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-900 border border-zinc-800 text-white shadow-md mb-6">
         <Mail className="h-7 w-7 text-zinc-200" />
       </div>

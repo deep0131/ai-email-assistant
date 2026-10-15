@@ -50,7 +50,7 @@ Return only the structured JSON response.
 
 async def review_draft(
     request: ReviewRequest,
-    attachments: list[GmailAttachment] | None = None,
+    reference_attachments: list[GmailAttachment] | None = None,
 ) -> ReviewResponse:
     file_list = [
         {
@@ -58,7 +58,7 @@ async def review_draft(
             "filename": attachment.filename,
             "content_type": attachment.content_type,
         }
-        for attachment in attachments or []
+        for attachment in reference_attachments or []
     ]
 
     review_content = f"""
@@ -71,8 +71,8 @@ STRUCTURED INTENT:
 GENERATED DRAFT:
 {request.draft.model_dump_json(indent=2)}
 
-UPLOADED REFERENCE FILES:
-The following files were uploaded by the user and are attached directly to this request:
+REFERENCE FILES:
+The following files were provided as reference material. They are not email attachments:
 {file_list if file_list else "None"}
 
 Instructions for uploaded files:
@@ -83,8 +83,8 @@ Instructions for uploaded files:
 
     contents = [review_content]
 
-    if attachments:
-        for attachment in attachments:
+    if reference_attachments:
+        for attachment in reference_attachments:
             contents.append(
                 types.Part.from_bytes(
                     data=attachment.data,

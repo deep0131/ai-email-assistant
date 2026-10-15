@@ -12,7 +12,8 @@ class EmailWorkflowState(TypedDict, total=False):
 
     # User input
     user_prompt: str
-    attachments: list[GmailAttachment]
+    reference_attachments: list[GmailAttachment]
+    email_attachments: list[GmailAttachment]
 
     # Agent results
     intent: IntentResponse | None

@@ -28,6 +28,72 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+MAX_UPLOAD_FILES = 5
+MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+MAX_TOTAL_UPLOAD_BYTES = 20 * 1024 * 1024
+
+ALLOWED_UPLOAD_TYPES = {
+    ".pdf": "application/pdf",
+    ".txt": "text/plain",
+    ".md": "text/plain",
+    ".csv": "text/csv",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+}
+
+
+async def read_validated_upload(
+    file: UploadFile,
+    total_bytes_so_far: int,
+) -> tuple[str, str, bytes]:
+    """Read one supported upload while enforcing per-file and request limits."""
+    filename = (file.filename or "").replace("\\", "/").rsplit("/", 1)[-1]
+    extension = f".{filename.rsplit('.', 1)[-1].lower()}" if "." in filename else ""
+
+    if not filename or extension not in ALLOWED_UPLOAD_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail="Unsupported file type. Use PDF, TXT, MD, CSV, PNG, or JPG.",
+        )
+
+    remaining_total = MAX_TOTAL_UPLOAD_BYTES - total_bytes_so_far
+    read_limit = min(MAX_FILE_SIZE_BYTES, remaining_total)
+    data = await file.read(read_limit + 1)
+
+    if len(data) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{filename} exceeds the 10 MB per-file limit.",
+        )
+
+    if len(data) > remaining_total:
+        raise HTTPException(
+            status_code=413,
+            detail="The combined upload size exceeds the 20 MB limit.",
+        )
+
+    if not data:
+        raise HTTPException(status_code=400, detail=f"{filename} is empty.")
+
+    if extension == ".pdf" and not data.startswith(b"%PDF-"):
+        raise HTTPException(status_code=415, detail=f"{filename} is not a valid PDF.")
+    if extension == ".png" and not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise HTTPException(status_code=415, detail=f"{filename} is not a valid PNG.")
+    if extension in {".jpg", ".jpeg"} and not data.startswith(b"\xff\xd8\xff"):
+        raise HTTPException(status_code=415, detail=f"{filename} is not a valid JPEG.")
+
+    if extension in {".txt", ".md", ".csv"}:
+        try:
+            data.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(
+                status_code=415,
+                detail=f"{filename} must be UTF-8 text.",
+            ) from exc
+
+    return filename, ALLOWED_UPLOAD_TYPES[extension], data
+
 
 @app.get("/health")
 def health():
@@ -139,26 +205,47 @@ async def workflow_endpoint(
     prompt: str = Form(default=""),
     workflow_thread_id: str = Form(default=""),
     resume_value: str = Form(default=""),
-    files: list[UploadFile] | None = File(default=None),
+    reference_files: list[UploadFile] | None = File(default=None),
+    email_attachments: list[UploadFile] | None = File(default=None),
 ):
     """Start or resume the email workflow."""
 
     if not workflow_thread_id:
         workflow_thread_id = str(uuid.uuid4())
 
-    attachments: list[GmailAttachment] = []
-
-    for file in files or []:
-        file_bytes = await file.read()
-
-        attachments.append(
-            GmailAttachment(
-                attachment_id=str(uuid.uuid4()),
-                filename=file.filename or "unnamed",
-                content_type=file.content_type or "application/octet-stream",
-                data=file_bytes,
-            )
+    reference_uploads = reference_files or []
+    email_uploads = email_attachments or []
+    if len(reference_uploads) + len(email_uploads) > MAX_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"You can upload at most {MAX_UPLOAD_FILES} files total.",
         )
+
+    total_upload_bytes = 0
+
+    async def read_upload_group(uploads: list[UploadFile]) -> list[GmailAttachment]:
+        nonlocal total_upload_bytes
+        result: list[GmailAttachment] = []
+
+        for upload in uploads:
+            filename, content_type, data = await read_validated_upload(
+                upload,
+                total_upload_bytes,
+            )
+            total_upload_bytes += len(data)
+            result.append(
+                GmailAttachment(
+                    attachment_id=str(uuid.uuid4()),
+                    filename=filename,
+                    content_type=content_type,
+                    data=data,
+                )
+            )
+
+        return result
+
+    reference_attachments = await read_upload_group(reference_uploads)
+    gmail_attachments = await read_upload_group(email_uploads)
 
     parsed_resume = None
 
@@ -172,7 +259,8 @@ async def workflow_endpoint(
         result = await run_email_workflow(
             user_prompt=prompt,
             workflow_thread_id=workflow_thread_id,
-            attachments=attachments or None,
+            reference_attachments=reference_attachments or None,
+            email_attachments=gmail_attachments or None,
             resume_value=parsed_resume,
         )
 

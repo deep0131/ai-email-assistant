@@ -32,11 +32,10 @@ class EmailDraftRequest(BaseModel):
 
 
 class EmailDraftResponse(BaseModel):
+    assistant_message: str
     subject: str
     to: list[EmailRecipient]
     body: str
-    action: ActionType
-    questions: list[str]
 
 
 class ReviewRequest(BaseModel):

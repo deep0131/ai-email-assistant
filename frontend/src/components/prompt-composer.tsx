@@ -26,8 +26,7 @@ export function PromptComposer({
 }: PromptComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const canSubmit =
-    !isLoading && (prompt.trim().length > 0 || files.length > 0);
+  const canSubmit = !isLoading && (prompt.trim().length > 0 || files.length > 0);
 
   const handleFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files ?? []);
@@ -42,15 +41,10 @@ export function PromptComposer({
     onFilesChange(files.filter((_, fileIndex) => fileIndex !== index));
   };
 
-  const handleKeyDown = (
-    event: React.KeyboardEvent<HTMLTextAreaElement>,
-  ) => {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-
-      if (canSubmit) {
-        onSubmit();
-      }
+      if (canSubmit) onSubmit();
     }
   };
 
@@ -73,11 +67,11 @@ export function PromptComposer({
                 className="flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-300"
               >
                 <span className="max-w-40 truncate">{file.name}</span>
-
                 <button
                   type="button"
                   onClick={() => removeFile(index)}
                   disabled={isLoading}
+                  aria-label={`Remove ${file.name}`}
                 >
                   <X className="h-3 w-3" />
                 </button>

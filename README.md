@@ -182,23 +182,22 @@ The Swagger interactive documentation will be available at: `http://localhost:80
 - **`POST /api/workflow`**: Initiates or resumes a workflow run.
   - **Form fields**:
     - `prompt` *(optional string)*: Natural language email request.
-    - `files` *(optional files)*: Uploaded attachments kept strictly in memory.
+    - `reference_files` *(optional files)*: Files supplied to the draft and review agents as reference material; they are not sent with the email.
+    - `email_attachments` *(optional files)*: Files attached to the outgoing email after user approval.
     - `workflow_thread_id` *(optional string)*: Thread identifier for multi-turn sessions.
     - `resume_value` *(optional string/json)*: Response to an `interrupt` (e.g. clarification, attachment choice, or approval).
   - **Response**:
     - `status`: `IN_PROGRESS`, `WAITING_FOR_USER`, `WAITING_FOR_APPROVAL`, `COMPLETED`, or `FAILED`.
     - `workflow_thread_id`: Session ID to pass back when resuming.
-    - `draft`: The generated draft with subject, body, recipients, and attachments.
+    - `draft`: The generated draft with subject, body, and recipients.
     - `review`: The reviewer decision, score, and summary.
     - `clarification_question`: Prompt presented to the user when waiting for input.
-    - `selected_thread_id`: Matched Gmail thread ID for replies.
-    - `attachment_decision`: `ATTACH` or `SKIP`.
-    - `selected_attachment_ids`: IDs of attachments chosen for the email.
+    - `email_attachment_filenames`: Names of files selected to be sent with the email.
     - `send_result`: Gmail Message ID and Thread ID if approved and sent.
 
 ## Security & Privacy Highlights
 
 1. **Human in the Loop**: Emails are **never** sent automatically. The workflow halts at `human_approval` and waits for explicit user confirmation.
 2. **Read-Only LLM Tools**: Gemini is only granted read access (`search_gmail_for_gemini`, `get_email_thread_for_gemini`). Writing drafts and sending messages are executed purely through deterministic LangGraph nodes.
-3. **RAM-Only Files**: Uploaded files are converted into byte buffers in memory and are discarded after the workflow completes. No files are ever written to the server's disk.
+3. **Separate In-Memory Uploads**: Reference files are available to the agents but are not emailed. Email attachments are held in memory and sent only after user approval. Uploads are not written to the server's disk.
 4. **Prompt Injection Defense**: External emails, thread snippets, and uploaded files are treated strictly as untrusted data in all system prompts.
