@@ -1,6 +1,8 @@
 import json
+import os
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +21,18 @@ from app.workflow.email_workflow import run_email_workflow
 
 
 app = FastAPI(title="AI Email Assistant", version="0.4.0")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+
+
+def gmail_oauth_redirect(status: str, message: str | None = None) -> RedirectResponse:
+    """Return the browser to the frontend after Gmail OAuth completes."""
+    query = {"gmail": status}
+    if message:
+        query["message"] = message
+    return RedirectResponse(
+        url=f"{FRONTEND_URL}/?{urlencode(query)}",
+        status_code=303,
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -141,15 +155,15 @@ def gmail_oauth_callback(
         if state:
             clear_oauth_state(state)
 
-        return {
-            "status": "error",
-            "message": f"OAuth authorization was denied or cancelled: {error}",
-        }
+        return gmail_oauth_redirect(
+            "error",
+            "Gmail authorization was cancelled or denied. Please try again.",
+        )
 
     if not code or not state:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing required 'code' or 'state' parameter.",
+        return gmail_oauth_redirect(
+            "error",
+            "Gmail authorization did not complete. Please try again.",
         )
 
     try:
@@ -159,19 +173,19 @@ def gmail_oauth_callback(
         flow.fetch_token(code=code)
         save_credentials(flow.credentials)
 
-        return {
-            "status": "success",
-            "message": "Gmail account connected successfully.",
-        }
+        return gmail_oauth_redirect("connected", "Gmail connected successfully.")
 
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError:
+        return gmail_oauth_redirect(
+            "error",
+            "Gmail authorization expired. Please start the connection again.",
+        )
 
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"OAuth callback failed: {exc}",
-        ) from exc
+    except Exception:
+        return gmail_oauth_redirect(
+            "error",
+            "Gmail could not be connected. Please try again.",
+        )
 
 
 @app.get("/api/gmail/status")

@@ -14,6 +14,7 @@ interface PromptComposerProps {
   onEmailAttachmentsChange: (files: File[]) => void;
   onSubmit: () => void;
   isLoading?: boolean;
+  disabled?: boolean;
   placeholder?: string;
 }
 
@@ -26,13 +27,15 @@ export function PromptComposer({
   onEmailAttachmentsChange,
   onSubmit,
   isLoading = false,
+  disabled = false,
   placeholder = "Ask AI Email Assistant to draft an email...",
 }: PromptComposerProps) {
   const referenceInputRef = useRef<HTMLInputElement>(null);
   const emailAttachmentInputRef = useRef<HTMLInputElement>(null);
 
+  const isDisabled = isLoading || disabled;
   const canSubmit =
-    !isLoading &&
+    !isDisabled &&
     (prompt.trim().length > 0 || referenceFiles.length > 0 || emailAttachments.length > 0);
 
   const handleFiles = (
@@ -101,7 +104,7 @@ export function PromptComposer({
                 <button
                   type="button"
                   onClick={() => removeFile(index, referenceFiles, onReferenceFilesChange)}
-                  disabled={isLoading}
+                  disabled={isDisabled}
                   aria-label={`Remove reference file ${file.name}`}
                 >
                   <X className="h-3 w-3" />
@@ -119,7 +122,7 @@ export function PromptComposer({
                 <button
                   type="button"
                   onClick={() => removeFile(index, emailAttachments, onEmailAttachmentsChange)}
-                  disabled={isLoading}
+                  disabled={isDisabled}
                   aria-label={`Remove email attachment ${file.name}`}
                 >
                   <X className="h-3 w-3" />
@@ -134,7 +137,7 @@ export function PromptComposer({
           onChange={(event) => onPromptChange(event.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          disabled={isLoading}
+          disabled={isDisabled}
           rows={2}
           className="min-h-[56px] resize-none border-0 bg-transparent px-4 pt-3 text-sm focus-visible:ring-0"
         />
@@ -146,7 +149,7 @@ export function PromptComposer({
               variant="ghost"
               size="sm"
               onClick={() => referenceInputRef.current?.click()}
-              disabled={isLoading}
+              disabled={isDisabled}
               aria-label="Add reference files"
             >
               <Paperclip className="mr-1.5 h-4 w-4 text-[#29bf12]/70" />
@@ -157,7 +160,7 @@ export function PromptComposer({
               variant="ghost"
               size="sm"
               onClick={() => emailAttachmentInputRef.current?.click()}
-              disabled={isLoading}
+              disabled={isDisabled}
               aria-label="Add email attachments"
             >
               <Paperclip className="mr-1.5 h-4 w-4 text-[#f7b801]/80" />

@@ -1,4 +1,4 @@
-import { EmailDraftCard } from "@/components/email-draft-card";
+import { EmailDraftCard, type ApprovalAction } from "@/components/email-draft-card";
 
 interface EmailDraft {
     assistant_message?: string;
@@ -21,9 +21,21 @@ interface ChatMessage {
 
 interface ChatMessagesProps {
     messages: ChatMessage[];
+    approvalPending: boolean;
+    isLoading: boolean;
+    onApproval: (action: ApprovalAction) => void;
 }
 
-export function ChatMessages({ messages }: ChatMessagesProps) {
+export function ChatMessages({
+    messages,
+    approvalPending,
+    isLoading,
+    onApproval,
+}: ChatMessagesProps) {
+    const pendingDraftId = [...messages]
+        .reverse()
+        .find((message) => message.role === "assistant" && message.draft)?.id;
+
     return (
         <div className="mx-auto w-full max-w-3xl space-y-6 overflow-y-auto px-4 py-8">
             {messages.map((message) => {
@@ -73,7 +85,12 @@ export function ChatMessages({ messages }: ChatMessagesProps) {
                             )}
 
                             {message.role === "assistant" && message.draft && (
-                                <EmailDraftCard draft={message.draft} />
+                                <EmailDraftCard
+                                    draft={message.draft}
+                                    approvalPending={approvalPending && message.id === pendingDraftId}
+                                    isLoading={isLoading}
+                                    onApproval={onApproval}
+                                />
                             )}
                         </div>
                     </div>
