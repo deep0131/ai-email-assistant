@@ -21,6 +21,7 @@ interface WorkflowResponse {
   draft?: EmailDraft | null;
   error?: string | null;
   detail?: string | null;
+  workflow_thread_id?: string | null;
 }
 
 interface ChatMessage {
@@ -28,6 +29,8 @@ interface ChatMessage {
   role: "user" | "assistant";
   content?: string;
   draft?: EmailDraft;
+  referenceFiles?: string[];
+  emailAttachments?: string[];
 }
 
 function createMessageId() {
@@ -40,27 +43,23 @@ export default function Home() {
   const [emailAttachments, setEmailAttachments] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [workflowThreadId, setWorkflowThreadId] = useState<string | null>(null);
+  const [workflowStatus, setWorkflowStatus] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     const prompt = promptText.trim();
+    const isResuming =
+      workflowStatus === "WAITING_FOR_USER" && workflowThreadId !== null;
 
     if (
       isLoading ||
-      (!prompt && referenceFiles.length === 0 && emailAttachments.length === 0)
+      (!isResuming &&
+        !prompt &&
+        referenceFiles.length === 0 &&
+        emailAttachments.length === 0)
     ) {
       return;
     }
-
-    const selectedFileSummary = [
-      referenceFiles.length > 0
-        ? `Reference files: ${referenceFiles.map((file) => file.name).join(", ")}`
-        : "",
-      emailAttachments.length > 0
-        ? `Email attachments: ${emailAttachments.map((file) => file.name).join(", ")}`
-        : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
 
     setIsLoading(true);
 
@@ -70,21 +69,34 @@ export default function Home() {
         id: createMessageId(),
         role: "user",
         content: prompt,
-        referenceFiles: referenceFiles.map((file) => file.name),
-        emailAttachments: emailAttachments.map((file) => file.name),
+        referenceFiles: isResuming
+          ? []
+          : referenceFiles.map((file) => file.name),
+        emailAttachments: isResuming
+          ? []
+          : emailAttachments.map((file) => file.name),
       },
     ]);
 
     const formData = new FormData();
-    formData.append("prompt", prompt);
 
-    referenceFiles.forEach((file) => {
-      formData.append("reference_files", file);
-    });
+    if (isResuming) {
+      formData.append("workflow_thread_id", workflowThreadId);
+      formData.append("resume_value", JSON.stringify({ answer: prompt }));
+    } else {
+      formData.append("prompt", prompt);
 
-    emailAttachments.forEach((file) => {
-      formData.append("email_attachments", file);
-    });
+      referenceFiles.forEach((file) => {
+        formData.append("reference_files", file);
+      });
+
+      emailAttachments.forEach((file) => {
+        formData.append("email_attachments", file);
+      });
+
+      setWorkflowThreadId(null);
+      setWorkflowStatus("IN_PROGRESS");
+    }
 
     try {
       const result = await fetch("http://localhost:8000/api/workflow", {
@@ -95,8 +107,16 @@ export default function Home() {
       const data: WorkflowResponse = await result.json();
 
       if (!result.ok) {
-        throw new Error(data.detail || data.error || "Unable to generate the email.");
+        throw new Error(
+          data.detail || data.error || "Unable to process the workflow.",
+        );
       }
+
+      if (data.workflow_thread_id) {
+        setWorkflowThreadId(data.workflow_thread_id);
+      }
+
+      setWorkflowStatus(data.status ?? null);
 
       const needsClarification = Boolean(data.clarification_question);
 
@@ -109,18 +129,21 @@ export default function Home() {
             data.clarification_question ||
             data.draft?.assistant_message ||
             data.error ||
-            "Waiting for the email to be generated...",
+            "The workflow has been updated.",
           draft: needsClarification ? undefined : data.draft ?? undefined,
         },
       ]);
-
-    } catch {
+    } 
+    catch (error) {
       setMessages((current) => [
         ...current,
         {
           id: createMessageId(),
           role: "assistant",
-          content: "Sorry, I'm unable to generate the email.",
+          content:
+            error instanceof Error
+              ? error.message
+              : "Sorry, I'm unable to process the workflow.",
         },
       ]);
     } finally {
@@ -132,7 +155,7 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen w-full flex-col bg-background text-zinc-100 font-sans">
+    <div className="flex h-screen w-full flex-col bg-background font-sans text-zinc-100">
       <main className="relative flex min-h-0 flex-1 flex-col">
         <div className="flex flex-1 flex-col overflow-y-auto">
           {messages.length === 0 ? (
@@ -151,7 +174,11 @@ export default function Home() {
           onEmailAttachmentsChange={setEmailAttachments}
           onSubmit={handleSubmit}
           isLoading={isLoading}
-          placeholder="Ask AI Email Assistant to draft an email..."
+          placeholder={
+            workflowStatus === "WAITING_FOR_USER"
+              ? "Type your answer..."
+              : "Ask AI Email Assistant to draft an email..."
+          }
         />
       </main>
     </div>
