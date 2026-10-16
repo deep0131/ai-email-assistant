@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { EmailDraftCard, type ApprovalAction } from "@/components/email-draft-card";
 import { LoaderCircle } from "lucide-react";
 
@@ -35,9 +36,14 @@ export function ChatMessages({
     progressMessage,
     onApproval,
 }: ChatMessagesProps) {
+    const endOfChatRef = useRef<HTMLDivElement>(null);
     const pendingDraftId = [...messages]
         .reverse()
         .find((message) => message.role === "assistant" && message.draft)?.id;
+
+    useEffect(() => {
+        endOfChatRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }, [messages, progressMessage, isLoading]);
 
     return (
         <div className="mx-auto w-full max-w-3xl space-y-6 overflow-y-auto px-4 py-8">
@@ -107,6 +113,7 @@ export function ChatMessages({
                     </div>
                 </div>
             )}
+            <div ref={endOfChatRef} />
         </div>
     );
 }
