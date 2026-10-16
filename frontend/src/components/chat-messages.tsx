@@ -1,4 +1,5 @@
 import { EmailDraftCard, type ApprovalAction } from "@/components/email-draft-card";
+import { LoaderCircle } from "lucide-react";
 
 interface EmailDraft {
     assistant_message?: string;
@@ -23,6 +24,7 @@ interface ChatMessagesProps {
     messages: ChatMessage[];
     approvalPending: boolean;
     isLoading: boolean;
+    progressMessage?: string;
     onApproval: (action: ApprovalAction) => void;
 }
 
@@ -30,6 +32,7 @@ export function ChatMessages({
     messages,
     approvalPending,
     isLoading,
+    progressMessage,
     onApproval,
 }: ChatMessagesProps) {
     const pendingDraftId = [...messages]
@@ -96,6 +99,14 @@ export function ChatMessages({
                     </div>
                 );
             })}
+            {progressMessage && (
+                <div className="flex justify-start" role="status" aria-live="polite">
+                    <div className="flex items-center gap-2 px-4 py-3 text-sm text-zinc-400">
+                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                        <span>{progressMessage}</span>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

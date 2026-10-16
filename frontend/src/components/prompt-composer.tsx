@@ -74,6 +74,7 @@ export function PromptComposer({
         type="file"
         multiple
         hidden
+        disabled={isDisabled}
         accept=".pdf,.txt,.md,.csv,.png,.jpg,.jpeg"
         onChange={(event) =>
           handleFiles(event, referenceFiles, onReferenceFilesChange, referenceInputRef)
@@ -84,6 +85,7 @@ export function PromptComposer({
         type="file"
         multiple
         hidden
+        disabled={isDisabled}
         accept=".pdf,.txt,.md,.csv,.png,.jpg,.jpeg"
         onChange={(event) =>
           handleFiles(event, emailAttachments, onEmailAttachmentsChange, emailAttachmentInputRef)

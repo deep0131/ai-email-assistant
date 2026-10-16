@@ -12,6 +12,11 @@ type GmailConnectionStatus = "checking" | "connected" | "disconnected" | "unavai
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 ).replace(/\/$/, "");
+const WORKFLOW_PROGRESS = [
+  "Gathering information…",
+  "Generating the draft…",
+  "Reviewing the draft…",
+];
 
 interface EmailDraft {
   assistant_message?: string;
@@ -50,12 +55,23 @@ export default function Home() {
   const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
   const [emailAttachments, setEmailAttachments] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [progressStep, setProgressStep] = useState(0);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [workflowThreadId, setWorkflowThreadId] = useState<string | null>(null);
   const [workflowStatus, setWorkflowStatus] = useState<string | null>(null);
   const [gmailStatus, setGmailStatus] = useState<GmailConnectionStatus>("checking");
   const [gmailEmail, setGmailEmail] = useState<string | null>(null);
   const [gmailNotice, setGmailNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isLoading) return;
+
+    const timer = window.setInterval(() => {
+      setProgressStep((step) => Math.min(step + 1, WORKFLOW_PROGRESS.length - 1));
+    }, 2200);
+
+    return () => window.clearInterval(timer);
+  }, [isLoading]);
 
   useEffect(() => {
     let isCurrent = true;
@@ -141,6 +157,7 @@ export default function Home() {
       return;
     }
 
+    setProgressStep(0);
     setIsLoading(true);
 
     const visibleUserMessage =
@@ -295,6 +312,7 @@ export default function Home() {
             messages={messages}
             approvalPending={workflowStatus === "WAITING_FOR_APPROVAL"}
             isLoading={isLoading}
+            progressMessage={isLoading ? WORKFLOW_PROGRESS[progressStep] : undefined}
             onApproval={handleSubmit}
           />
           )}
@@ -307,9 +325,10 @@ export default function Home() {
           onReferenceFilesChange={setReferenceFiles}
           emailAttachments={emailAttachments}
           onEmailAttachmentsChange={setEmailAttachments}
-          onSubmit={handleSubmit}
+          onSubmit={() => handleSubmit()}
           isLoading={isLoading}
           disabled={
+            workflowStatus === "WAITING_FOR_USER" ||
             workflowStatus === "WAITING_FOR_APPROVAL" ||
             gmailStatus !== "connected"
           }
