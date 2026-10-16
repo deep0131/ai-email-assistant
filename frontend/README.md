@@ -8,7 +8,7 @@ A ChatGPT-inspired monochrome interface built with **Next.js 16**, **TypeScript*
 
 - **Monochrome ChatGPT-style Theme**: Deep charcoal backgrounds, subtle zinc borders, crisp typography, and responsive centered chat view.
 - **Dynamic Prompt Composer**: Multiline auto-resizing textarea with keyboard support (`Enter` to submit, `Shift+Enter` for newlines).
-- **Attachment Uploads & Previews**: Upload multiple file attachments with deduplication, formatted file sizes, thumbnail image previews, and remove buttons.
+- **Separate File Uploads**: Choose files for AI reference separately from files to attach to the outgoing email.
 - **Workflow State Management**: Seamless handling of LangGraph MemorySaver threads via `POST /api/workflow`.
 - **Structured Response Cards**:
   - **Status Badges**: Visual indicators for `WAITING_FOR_USER`, `WAITING_FOR_APPROVAL`, `COMPLETED`, `APPROVED`, `REJECTED`, and `ERROR`.
@@ -99,36 +99,25 @@ npm run build
      - Reviewer evaluation score & decision (`PASS`)
      - Action buttons: `Confirm and Send` and `Reject`.
 
-### 2. Testing an Uploaded Attachment
+### 2. Testing Reference Files and Email Attachments
 
-1. Click the **Paperclip** icon in the prompt composer.
-2. Select one or more files (e.g., an image or PDF file).
-3. Observe:
-   - Attachment chip appears with file icon, image preview (for images), filename, formatted size (e.g. `24.5 KB`), and an `X` remove button.
-4. Type your prompt:
-   ```text
-   Send an email to hr@company.com with my resume attached for the Senior Engineer opening.
-   ```
-5. Click **Send**.
-6. The backend workflow automatically recognizes the uploaded file, verifies the attachment decision, and displays the draft with the attached file.
+1. Choose **Reference files** to give a document to the AI for context. These files are not sent with the email.
+2. Choose **Email attachments** to include files with the outgoing email after you approve it.
+3. You can select files in both groups; the composer labels each file by its group.
+4. Try an unsupported file type, more than five files, or a file over 10 MB to verify that the backend rejects it.
 
 ### 3. Testing Clarification (`WAITING_FOR_USER`)
 
-1. Submit an underspecified prompt with missing details:
+1. Submit an underspecified new-email prompt with missing details:
    ```text
-   Please reply to that earlier email.
+   Send an email to raj@example.com about my leg injury.
    ```
-2. The backend responds with status `WAITING_FOR_USER` and asks for missing information (e.g. recipient or thread context).
+2. The backend responds with status `WAITING_FOR_USER` and asks for essential missing information.
 3. The interface displays the **Clarification Needed** card.
-4. If testing attachment confirmation:
-   - Upload a file without mentioning attachments in prompt: `Email Sarah saying hello`.
-   - The assistant asks if you want to include the file.
-   - Use the one-click natural response chips:
-     - `okay`, `yes`, `go ahead`, `no`, or `send without it`.
-5. Enter your answer or click a chip. The frontend calls `POST /api/workflow` with:
+4. Enter an answer. The frontend calls `POST /api/workflow` with:
    - `workflow_thread_id`
    - `resume_value`
-6. The workflow resumes from its saved LangGraph checkpoint without re-running previous nodes.
+5. The workflow resumes from its saved LangGraph checkpoint.
 
 ### 4. Testing Approval and Rejection (`WAITING_FOR_APPROVAL`)
 

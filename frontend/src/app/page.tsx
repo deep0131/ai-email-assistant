@@ -1,219 +1,344 @@
 "use client";
 
-import React, { useState } from "react";
-import { Header } from "@/components/header";
-import { ChatArea } from "@/components/chat-area";
+import { useEffect, useState } from "react";
+import { EmptyState } from "@/components/empty-state";
 import { PromptComposer } from "@/components/prompt-composer";
-import { prepareWorkflowFormData, executeWorkflow } from "@/lib/api";
-import { ChatMessage, WorkflowResponse } from "@/lib/types";
+import { ChatMessages } from "@/components/chat-messages";
+import type { ApprovalAction } from "@/components/email-draft-card";
 
-function createMessageId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+type ResumeValue = { answer: string } | ApprovalAction;
+type GmailConnectionStatus = "checking" | "connected" | "disconnected" | "unavailable";
+
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+).replace(/\/$/, "");
+const WORKFLOW_PROGRESS = [
+  "Gathering information…",
+  "Generating the draft…",
+  "Reviewing the draft…",
+];
+
+interface EmailDraft {
+  assistant_message?: string;
+  subject: string;
+  body: string;
+  to: Array<{
+    name?: string | null;
+    email?: string | null;
+  }>;
 }
 
-function getTimestamp(): string {
-  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+interface WorkflowResponse {
+  status?: string;
+  clarification_question?: string | null;
+  draft?: EmailDraft | null;
+  error?: string | null;
+  detail?: string | null;
+  workflow_thread_id?: string | null;
+}
+
+interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content?: string;
+  draft?: EmailDraft;
+  referenceFiles?: string[];
+  emailAttachments?: string[];
+}
+
+function createMessageId() {
+  return `${Date.now()}-${Math.random()}`;
 }
 
 export default function Home() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [promptText, setPromptText] = useState("");
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
+  const [emailAttachments, setEmailAttachments] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [progressStep, setProgressStep] = useState(0);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [workflowThreadId, setWorkflowThreadId] = useState<string | null>(null);
-  const [currentStatus, setCurrentStatus] = useState<string | null>(null);
+  const [workflowStatus, setWorkflowStatus] = useState<string | null>(null);
+  const [gmailStatus, setGmailStatus] = useState<GmailConnectionStatus>("checking");
+  const [gmailEmail, setGmailEmail] = useState<string | null>(null);
+  const [gmailNotice, setGmailNotice] = useState<string | null>(null);
 
-  const handleSelectPrompt = (selectedText: string) => {
-    setPromptText(selectedText);
-  };
+  useEffect(() => {
+    if (!isLoading) return;
 
-  const handleClearChat = () => {
-    setMessages([]);
-    setPromptText("");
-    setSelectedFiles([]);
-    setWorkflowThreadId(null);
-    setCurrentStatus(null);
-  };
+    const timer = window.setInterval(() => {
+      setProgressStep((step) => Math.min(step + 1, WORKFLOW_PROGRESS.length - 1));
+    }, 2200);
 
-  // General workflow execution handler
-  const runWorkflow = async (formData: FormData) => {
-    setIsLoading(true);
+    return () => window.clearInterval(timer);
+  }, [isLoading]);
 
-    try {
-      const response: WorkflowResponse = await executeWorkflow(formData);
+  useEffect(() => {
+    let isCurrent = true;
+    const query = new URLSearchParams(window.location.search);
+    const oauthResult = query.get("gmail");
+    const oauthMessage = query.get("message");
 
-      if (response.workflow_thread_id) {
-        setWorkflowThreadId(response.workflow_thread_id);
-      }
-      setCurrentStatus(response.status);
-
-      const assistantMsg: ChatMessage = {
-        id: createMessageId(),
-        role: "assistant",
-        workflowResponse: response,
-        timestamp: getTimestamp(),
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error
-          ? err.message
-          : "An unexpected error occurred while communicating with the backend.";
-
-      const errorResponse: WorkflowResponse = {
-        status: "ERROR",
-        error: errorMessage,
-        workflow_thread_id: workflowThreadId || undefined,
-      };
-
-      const errorMsg: ChatMessage = {
-        id: createMessageId(),
-        role: "assistant",
-        workflowResponse: errorResponse,
-        timestamp: getTimestamp(),
-      };
-
-      setMessages((prev) => [...prev, errorMsg]);
-    } finally {
-      setIsLoading(false);
+    if (oauthResult) {
+      window.history.replaceState({}, "", window.location.pathname);
     }
+
+    const checkGmailConnection = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/gmail/status`, {
+          cache: "no-store",
+        });
+        const data: { status?: string; email?: string } = await response.json();
+
+        if (!isCurrent) return;
+
+        if (response.ok && data.status === "connected") {
+          setGmailStatus("connected");
+          setGmailEmail(data.email ?? null);
+          if (oauthResult) setGmailNotice(oauthMessage);
+        } else {
+          setGmailStatus("disconnected");
+          setGmailEmail(null);
+          if (oauthResult) {
+            setGmailNotice(
+              oauthMessage || "Gmail is not connected. Please try connecting again.",
+            );
+          }
+        }
+      } catch {
+        if (isCurrent) {
+          setGmailStatus("unavailable");
+          if (oauthResult) {
+            setGmailNotice(
+              oauthMessage || "Could not verify the Gmail connection.",
+            );
+          }
+        }
+      }
+    };
+
+    void checkGmailConnection();
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
+  const connectGmail = () => {
+    window.open(`${API_BASE_URL}/api/gmail/oauth/start`, "_self");
   };
 
-  // Submit handler from bottom prompt composer
-  const handleSubmit = async () => {
-    if (isLoading) return;
-    const trimmed = promptText.trim();
-    if (!trimmed && selectedFiles.length === 0) return;
+  const handleSubmit = async (resumeValue?: ResumeValue) => {
+    const prompt = promptText.trim();
+    if (
+      resumeValue &&
+      "decision" in resumeValue &&
+      resumeValue.decision === "SEND" &&
+      gmailStatus !== "connected"
+    ) {
+      setGmailNotice("Connect Gmail before sending this email.");
+      return;
+    }
+    const isResuming =
+      workflowThreadId !== null &&
+      (workflowStatus === "WAITING_FOR_USER" ||
+        workflowStatus === "WAITING_FOR_APPROVAL");
 
-    // If currently waiting for user clarification, route the prompt as resume_value
-    if (currentStatus === "WAITING_FOR_USER" && workflowThreadId) {
-      handleResume(trimmed);
-      setPromptText("");
-      setSelectedFiles([]);
+    if (workflowStatus === "WAITING_FOR_APPROVAL" && !resumeValue) {
       return;
     }
 
-    const fileAttachments = selectedFiles.map((f) => ({
-      name: f.name,
-      size: f.size,
-    }));
-
-    const userMessage: ChatMessage = {
-      id: createMessageId(),
-      role: "user",
-      content: trimmed,
-      files: fileAttachments,
-      timestamp: getTimestamp(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-
-    const formData = prepareWorkflowFormData({
-      prompt: trimmed,
-      files: selectedFiles,
-      workflowThreadId: workflowThreadId || undefined,
-    });
-
-    setPromptText("");
-    setSelectedFiles([]);
-
-    await runWorkflow(formData);
-  };
-
-  // Resume handler for clarification and natural responses
-  const handleResume = async (resumeValue: string) => {
-    if (isLoading || !workflowThreadId) return;
-
-    const userMessage: ChatMessage = {
-      id: createMessageId(),
-      role: "user",
-      content: resumeValue,
-      timestamp: getTimestamp(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-
-    const formData = prepareWorkflowFormData({
-      workflowThreadId,
-      resumeValue,
-    });
-
-    await runWorkflow(formData);
-  };
-
-  // Approval handler: resumes workflow with { approved: true }
-  const handleApprove = async () => {
-    if (isLoading || !workflowThreadId) return;
-
-    const userMessage: ChatMessage = {
-      id: createMessageId(),
-      role: "user",
-      content: "Approved: Confirm and send email.",
-      timestamp: getTimestamp(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-
-    const formData = prepareWorkflowFormData({
-      workflowThreadId,
-      resumeValue: { approved: true },
-    });
-
-    await runWorkflow(formData);
-  };
-
-  // Rejection handler: resumes workflow with { approved: false }
-  const handleReject = async () => {
-    if (isLoading || !workflowThreadId) return;
-
-    const userMessage: ChatMessage = {
-      id: createMessageId(),
-      role: "user",
-      content: "Draft rejected.",
-      timestamp: getTimestamp(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-
-    const formData = prepareWorkflowFormData({
-      workflowThreadId,
-      resumeValue: { approved: false },
-    });
-
-    await runWorkflow(formData);
-  };
-
-  const getComposerPlaceholder = () => {
-    if (currentStatus === "WAITING_FOR_USER") {
-      return "Type your answer to the clarification question above...";
+    if (
+      isLoading ||
+      (!isResuming &&
+        !prompt &&
+        referenceFiles.length === 0 &&
+        emailAttachments.length === 0)
+    ) {
+      return;
     }
-    if (currentStatus === "WAITING_FOR_APPROVAL") {
-      return "Review the draft above and click 'Confirm and Send' or 'Reject'...";
+
+    setProgressStep(0);
+    setIsLoading(true);
+
+    const visibleUserMessage =
+      resumeValue && "decision" in resumeValue
+        ? resumeValue.decision === "IMPROVE"
+          ? `Improve the draft: ${resumeValue.feedback}`
+          : resumeValue.decision === "SEND"
+            ? "Send this email"
+            : "Reject this email"
+        : prompt;
+
+    setMessages((current) => [
+      ...current,
+      {
+        id: createMessageId(),
+        role: "user",
+        content: visibleUserMessage,
+        referenceFiles: isResuming
+          ? []
+          : referenceFiles.map((file) => file.name),
+        emailAttachments: isResuming
+          ? []
+          : emailAttachments.map((file) => file.name),
+      },
+    ]);
+
+    const formData = new FormData();
+
+    if (isResuming) {
+      formData.append("workflow_thread_id", workflowThreadId);
+      formData.append(
+        "resume_value",
+        JSON.stringify(resumeValue ?? { answer: prompt }),
+      );
+    } else {
+      formData.append("prompt", prompt);
+
+      referenceFiles.forEach((file) => {
+        formData.append("reference_files", file);
+      });
+
+      emailAttachments.forEach((file) => {
+        formData.append("email_attachments", file);
+      });
+
+      setWorkflowThreadId(null);
+      setWorkflowStatus("IN_PROGRESS");
     }
-    return "Ask AI Email Assistant to draft or reply to an email...";
+
+    try {
+      const result = await fetch(`${API_BASE_URL}/api/workflow`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const data: WorkflowResponse = await result.json();
+
+      if (!result.ok) {
+        throw new Error(
+          data.detail || data.error || "Unable to process the workflow.",
+        );
+      }
+
+      if (data.workflow_thread_id) {
+        setWorkflowThreadId(data.workflow_thread_id);
+      }
+
+      setWorkflowStatus(data.status ?? null);
+      if (data.status === "FAILED" && data.error?.includes("invalid_grant")) {
+        setGmailStatus("disconnected");
+        setGmailEmail(null);
+        setGmailNotice("Gmail authorization expired. Reconnect Gmail before sending.");
+      }
+
+      const needsClarification = Boolean(data.clarification_question);
+      const assistantMessage =
+        data.status === "SENT"
+          ? "The email was sent."
+          : data.status === "REJECTED"
+            ? "The email was rejected. Nothing was sent."
+            : data.status === "FAILED"
+              ? "Sorry, the email could not be sent due to an internal error. Please try again later."
+              : data.clarification_question ||
+                data.draft?.assistant_message ||
+                "The workflow has been updated.";
+
+      setMessages((current) => [
+        ...current,
+        {
+          id: createMessageId(),
+          role: "assistant",
+          content: assistantMessage,
+          draft:
+            !needsClarification && data.status === "WAITING_FOR_APPROVAL"
+              ? data.draft ?? undefined
+              : undefined,
+        },
+      ]);
+    } 
+    catch {
+      setMessages((current) => [
+        ...current,
+        {
+          id: createMessageId(),
+          role: "assistant",
+          content: "Sorry, I couldn't generate the email due to an internal error. Please try again later.",
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+      setPromptText("");
+      setReferenceFiles([]);
+      setEmailAttachments([]);
+    }
   };
 
   return (
-    <div className="flex h-screen w-full flex-col bg-[#0d0d0e] text-zinc-100 font-sans">
-      <Header onClearChat={handleClearChat} />
-      <main className="flex-1 flex flex-col min-h-0 relative">
-        <ChatArea
-          messages={messages}
-          isLoading={isLoading}
-          onSelectPrompt={handleSelectPrompt}
-          onApprove={handleApprove}
-          onReject={handleReject}
-          onResume={handleResume}
-        />
+    <div className="flex h-screen w-full flex-col bg-background font-sans text-zinc-100">
+      <header className="flex items-center justify-between gap-4 border-b border-zinc-800 px-4 py-3 sm:px-6">
+        <div>
+          <h1 className="text-sm font-semibold text-zinc-100">AI Email Assistant</h1>
+          <p className="text-xs text-zinc-400" aria-live="polite">
+            {gmailStatus === "checking"
+              ? "Checking Gmail connection…"
+              : gmailStatus === "connected"
+                ? `Gmail connected${gmailEmail ? ` as ${gmailEmail}` : ""}`
+                : gmailStatus === "unavailable"
+                  ? "Gmail service unavailable"
+                  : "Gmail not connected"}
+          </p>
+          {gmailNotice && (
+            <p className="mt-1 text-xs text-amber-300" role="status">
+              {gmailNotice}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={connectGmail}
+          disabled={gmailStatus === "checking"}
+          className="shrink-0 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800 disabled:cursor-wait disabled:opacity-50"
+        >
+          {gmailStatus === "connected" ? "Reconnect Gmail" : "Connect Gmail"}
+        </button>
+      </header>
+      <main className="relative flex min-h-0 flex-1 flex-col">
+        <div className="flex flex-1 flex-col overflow-y-auto">
+          {messages.length === 0 ? (
+            <EmptyState />
+          ) : (
+          <ChatMessages
+            messages={messages}
+            approvalPending={workflowStatus === "WAITING_FOR_APPROVAL"}
+            isLoading={isLoading}
+            progressMessage={isLoading ? WORKFLOW_PROGRESS[progressStep] : undefined}
+            onApproval={handleSubmit}
+          />
+          )}
+        </div>
+
         <PromptComposer
           prompt={promptText}
           onPromptChange={setPromptText}
-          files={selectedFiles}
-          onFilesChange={setSelectedFiles}
-          onSubmit={handleSubmit}
+          referenceFiles={referenceFiles}
+          onReferenceFilesChange={setReferenceFiles}
+          emailAttachments={emailAttachments}
+          onEmailAttachmentsChange={setEmailAttachments}
+          onSubmit={() => handleSubmit()}
           isLoading={isLoading}
-          placeholder={getComposerPlaceholder()}
+          disabled={
+            workflowStatus === "WAITING_FOR_USER" ||
+            workflowStatus === "WAITING_FOR_APPROVAL" ||
+            gmailStatus !== "connected"
+          }
+          placeholder={
+            gmailStatus !== "connected"
+              ? "Connect Gmail to start..."
+              : workflowStatus === "WAITING_FOR_USER"
+              ? "Type your answer..."
+              : "Ask AI Email Assistant to draft an email..."
+          }
         />
       </main>
     </div>
